@@ -1,0 +1,12 @@
+# keys, kubeconfigs and secrets
+k8s_azure_lab
+*.pem
+id_rsa*
+*.key
+admin.conf
+config-op
+# Oracle's copyrighted doc and big binaries
+oracle-real-application-clusters-*.pdf
+*.zip
+*.iso
+*.vdi

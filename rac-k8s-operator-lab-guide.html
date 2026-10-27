@@ -1,0 +1,1096 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RAC Operator Lab Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>/* Layout: runbook. Hero band, sticky phase index on the left, one reading column with
+   dark command panels; each panel is labelled with where it runs (PC, VM, pod). */
+:root {
+  --bg: #f6f7f8; --surface: #ffffff; --fg: #17212b; --muted: #57636f; --line: #d5dbe1;
+  --accent: #0b6e78; --accent-soft: #e1f0f1; --band: #eef2f4;
+  --code-bg: #121b23; --code-fg: #e3e9ef; --code-muted: #8b9aa8;
+  --win: #2a5db0; --win-soft: #e3ecfa; --node: #2c7a4b; --node-soft: #e1f2e7; --pod: #6a49b5; --pod-soft: #ece6f8;
+  --tk-key: #ff9e7a; --tk-str: #a5d6a7; --tk-var: #8ecbff; --tk-num: #f3c969; --tk-com: #7f8e9c;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1419; --surface: #141c23; --fg: #e3e9ee; --muted: #9caab6; --line: #2a3641;
+  --accent: #55bcc6; --accent-soft: #123239; --band: #18222b;
+  --code-bg: #0a1016; --code-fg: #e3e9ef; --code-muted: #8b9aa8;
+  --win: #8db4f2; --win-soft: #18283f; --node: #79c79a; --node-soft: #152b20; --pod: #b9a2f0; --pod-soft: #251d3a;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1419; --surface: #141c23; --fg: #e3e9ee; --muted: #9caab6; --line: #2a3641;
+  --accent: #55bcc6; --accent-soft: #123239; --band: #18222b;
+  --code-bg: #0a1016; --code-fg: #e3e9ef; --code-muted: #8b9aa8;
+  --win: #8db4f2; --win-soft: #18283f; --node: #79c79a; --node-soft: #152b20; --pod: #b9a2f0; --pod-soft: #251d3a;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 17px/1.6 var(--font-body); margin: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.hero { background: var(--surface); border-bottom: 1px solid var(--line);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 28px; }
+.hero-in { max-width: 1120px; margin: 0 auto; display: grid; gap: 14px; }
+.kicker { margin: 0; font: 600 13px/1.3 var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { margin: 0; font: 800 clamp(34px, 5vw, 54px)/1.05 var(--font-display); letter-spacing: -.02em; text-wrap: balance; }
+.lede { margin: 0; max-width: 66ch; font-size: 19px; color: var(--muted); }
+.stack { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.stack li { font: 500 13px/1 var(--font-mono); padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.meta { margin: 0; font-size: 15px; color: var(--muted); max-width: 90ch; }
+.pdf { margin-left: 8px; font-weight: 600; }
+.legend .where { justify-self: start; }
+.legend { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; align-items: center; font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+.where { display: inline-block; font: 600 12px/1 var(--font-mono); padding: 5px 8px; border-radius: 5px; white-space: nowrap; }
+.where.win { color: var(--win); background: var(--win-soft); }
+.where.node { color: var(--node); background: var(--node-soft); }
+.where.pod { color: var(--pod); background: var(--pod-soft); }
+.where.file { color: var(--code-muted); background: transparent; border: 1px solid #2a3641; }
+
+.layout { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; }
+.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; max-height: calc(100vh - 32px); overflow: auto; font-size: 15px; }
+.toc summary { font: 700 13px/1 var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); cursor: pointer; padding: 4px 0 10px; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.toc a { display: grid; grid-template-columns: 26px 1fr; gap: 4px; padding: 6px 8px; border-radius: 6px; color: var(--fg); text-decoration: none; line-height: 1.3; }
+.toc a:hover { background: var(--accent-soft); }
+.toc a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.toc-num { font: 600 12px/1.6 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.content { min-width: 0; max-width: 820px; }
+.sec { padding-bottom: 28px; margin-bottom: 36px; border-bottom: 1px solid var(--line); }
+.sec:last-of-type { border-bottom: 0; }
+h2 { font: 700 30px/1.15 var(--font-display); letter-spacing: -.01em; margin: 0 0 18px; text-wrap: balance; scroll-margin-top: 16px; display: grid; gap: 6px; }
+.eyebrow { font: 600 13px/1 var(--font-mono); color: var(--accent); letter-spacing: .04em; text-transform: uppercase; }
+h3 { font: 700 20px/1.25 var(--font-display); margin: 32px 0 10px; scroll-margin-top: 16px; text-wrap: balance; }
+p, li { max-width: 72ch; }
+p { margin: 0 0 14px; }
+ul, ol { margin: 0 0 14px; padding-left: 1.3em; }
+li { margin: 4px 0; }
+strong { font-weight: 700; }
+code { font: 500 .86em var(--font-mono); background: var(--band); padding: .1em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+
+.cmd { position: relative; margin: 12px 0 18px; background: var(--code-bg); border-radius: 10px; overflow: hidden; }
+.cmd-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 86px 0 14px; }
+.where-note { font: 12px/1.4 var(--font-mono); color: var(--code-muted); }
+.copy { position: absolute; top: 8px; right: 8px; font: 600 12px/1 var(--font-body); color: var(--code-fg); background: transparent; border: 1px solid #3a4754; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+.copy:hover { background: #1f2b36; }
+.copy.done { color: #a5d6a7; border-color: #3f6b48; }
+.cmd pre { margin: 0; padding: 12px 14px 16px; overflow-x: auto; }
+.cmd pre code { background: none; padding: 0; color: var(--code-fg); font: 400 13.5px/1.55 var(--font-mono); white-space: pre; overflow-wrap: normal; }
+.cmd .k, .cmd .kn, .cmd .kd, .cmd .ow { color: var(--tk-key); }
+.cmd .s, .cmd .s1, .cmd .s2, .cmd .sh, .cmd .sb, .cmd .sd, .cmd .se { color: var(--tk-str); }
+.cmd .nv, .cmd .nb, .cmd .vg, .cmd .nf { color: var(--tk-var); }
+.cmd .m, .cmd .mi, .cmd .mf { color: var(--tk-num); }
+.cmd .c, .cmd .c1, .cmd .cm, .cmd .ch { color: var(--tk-com); font-style: italic; }
+
+.table-wrap { overflow-x: auto; margin: 12px 0 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font: 700 13px/1.3 var(--font-display); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--band); }
+tr:last-child td { border-bottom: 0; }
+
+.diagram { margin: 18px 0 22px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 620px; height: auto; font-family: var(--font-body); }
+.diagram figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
+.d-box { fill: none; stroke: var(--muted); stroke-width: 1.25; }
+.d-pod { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+.d-band { fill: var(--band); stroke: var(--line); stroke-width: 1; }
+.d-line line, .d-line path { stroke: var(--muted); stroke-width: 1.25; fill: none; }
+.d-arrowhead { fill: var(--muted); }
+.d-title { font: 700 15px var(--font-display); fill: var(--fg); }
+.d-name { font-size: 13px; font-weight: 700; fill: var(--fg); }
+.d-text { font-size: 11.5px; fill: var(--fg); }
+.d-quiet { font-size: 11.5px; fill: var(--muted); }
+.d-small { font-size: 10.5px; fill: var(--muted); }
+
+.foot { color: var(--muted); font-size: 14px; padding-top: 8px; }
+
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .toc { position: static; max-height: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+  .legend { grid-template-columns: 1fr; }
+  .legend span:not(.where) { margin-bottom: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+
+/* print / PDF */
+.shell.print .toc, .shell.print .copy { display: none; }
+.shell.print .layout { grid-template-columns: minmax(0, 1fr); padding-block: 8px; }
+.shell.print .content { max-width: none; }
+.shell.print .cmd pre code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; }
+.shell.print .sec { break-before: page; border-bottom: 0; }
+.shell.print .cmd, .shell.print .diagram, .shell.print tr { break-inside: avoid; }
+.shell.print .diagram svg { min-width: 0; }
+.shell.print .hero { padding-block: 24px; }
+@media print {
+  .toc, .copy { display: none; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .cmd pre code { white-space: pre-wrap; }
+}
+@media (max-width: 640px) { table { min-width: 560px; } h2 { font-size: 26px; } }
+.shell.print { font-size: 12.5px; line-height: 1.5; }
+.shell.print h1 { font-size: 34px; }
+.shell.print .lede { font-size: 14px; }
+.shell.print h2 { font-size: 22px; }
+.shell.print h3 { font-size: 15px; margin-top: 18px; }
+.shell.print p, .shell.print li { max-width: none; }
+.shell.print table { font-size: 11.5px; }
+.shell.print .cmd pre code { font-size: 10px; line-height: 1.45; }
+.shell.print .stack li, .shell.print .where { font-size: 10px; }
+.shell.print .sec { break-before: auto; }
+.shell.print .sec h2 { break-after: avoid; }
+.shell.print h3 { break-after: avoid; }
+
+.connect { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 14px 0; font: 12px/1.5 var(--font-mono); color: var(--code-muted); }
+.connect-lbl { font: 600 11px/1 var(--font-body, inherit); letter-spacing: .04em; text-transform: uppercase; color: var(--code-muted); margin-right: 2px; }
+.conn-cmd { display: inline-flex; align-items: center; gap: 6px; }
+.conn-cmd code { color: var(--code-fg, inherit); background: rgba(127,127,127,.16); padding: 2px 6px; border-radius: 4px; }
+.copy-mini { font: 600 11px/1 var(--font-body, inherit); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: var(--code-muted); cursor: pointer; }
+.copy-mini:hover { color: var(--code-fg, inherit); }
+.copy-mini.done { color: var(--accent, #2bb3a3); border-color: currentColor; }
+.print .copy-mini { display: none; }
+</style>
+</head>
+<body>
+<div class="shell ">
+<header class="hero">
+  <div class="hero-in">
+    <p class="kicker">Operator lab · Oracle RAC 19c on kubeadm</p>
+    <h1>The operator lab: Phases 0–8</h1>
+    <p class="lede">A second, separate lab next to the manual one, built the same way up to Multus, then handed to Oracle&#39;s database operator for the RAC database. Own VM names, IPs, ports and disks; the same golden image.</p>
+    <ul class="stack"><li>op-controlplane · op-worker1 · op-worker2</li><li>10.0.1.20–22</li><li>SSH 2220–2222</li><li>D:&#92;VMs&#92;rac-op</li><li>Oracle Database Operator v2.2.0</li></ul>
+    <p class="meta">26 Oct 2026 · Companion to the manual lab guide; Phases 7 onward follow <a href="https://github.com/oracle/oracle-database-operator">oracle/oracle-database-operator</a>. <a class="pdf" href="rac-k8s-operator-lab-guide.pdf">PDF version</a></p>
+    <div class="legend" aria-label="Where commands run">
+      <span class="where win">PowerShell / Git Bash</span><span>on your PC</span>
+      <span class="where node">golden VM · controlplane · worker</span><span>root shell on a VM</span>
+      <span class="where pod">racnode1-0 · racnode2-0</span><span>root shell in a RAC pod</span>
+    </div>
+  </div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents">
+    <details open><summary>Contents</summary><ol><li><a href="#how-to-use-this-guide"><span class="toc-num"></span>How to use this guide</a></li>
+<li><a href="#phase-0-windows-host-and-the-operator-labs-port-forwards"><span class="toc-num">0</span>Windows host and the operator lab&#x27;s port forwards</a></li>
+<li><a href="#phase-3-clone-the-three-operator-lab-nodes"><span class="toc-num">3</span>Clone the three operator-lab nodes</a></li>
+<li><a href="#phase-4-personalize-each-node"><span class="toc-num">4</span>Personalize each node</a></li>
+<li><a href="#phase-5-kubernetes-with-kubeadm-and-flannel"><span class="toc-num">5</span>Kubernetes with kubeadm and Flannel</a></li>
+<li><a href="#phase-6-multus-and-the-rac-private-networks"><span class="toc-num">6</span>Multus and the RAC private networks</a></li>
+<li><a href="#phase-7-install-oracles-database-operator"><span class="toc-num">7</span>Install Oracle&#x27;s database operator</a></li>
+<li><a href="#phase-8-the-rac-slim-image-and-the-software"><span class="toc-num">8</span>The RAC slim image and the software</a></li>
+<li><a href="#next-phases-912"><span class="toc-num"></span>Next: Phases 9–12</a></li></ol></details>
+  </nav>
+  <main class="content"><section class="sec"><h2 id="how-to-use-this-guide">How to use this guide</h2>
+<p>This guide builds a <strong>second lab, the operator lab</strong>, next to the manual lab you already have. It follows the manual guide's Phases 0 and 3–6 step by step, with its own names, addresses and ports, so the two labs never overwrite each other. The RAC database itself will come from Oracle's database operator in the later phases, instead of the hand-run installs of the manual lab's Phases 8–14.</p>
+<p><strong>Copy every block exactly as it is.</strong> Each block's label says where it runs, and the <strong>connect</strong> line shows how to get there. Blocks labelled <code># PowerShell</code> run in a PowerShell window on your PC, never in Git Bash.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>Manual lab (unchanged)</th>
+<th><strong>Operator lab (this guide)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VM names and host names</td>
+<td><code>controlplane</code>, <code>worker1</code>, <code>worker2</code></td>
+<td><strong><code>op-controlplane</code>, <code>op-worker1</code>, <code>op-worker2</code></strong></td>
+</tr>
+<tr>
+<td>IPs on <code>k8s-public</code> 10.0.1.0/24</td>
+<td>.10, .11, .12</td>
+<td><strong>.20, .21, .22</strong></td>
+</tr>
+<tr>
+<td>SSH from Windows</td>
+<td>2210, 2211, 2212</td>
+<td><strong>2220, 2221, 2222</strong></td>
+</tr>
+<tr>
+<td>VM and disk folder</td>
+<td><code>D:\VMs\rac-poc</code></td>
+<td><strong><code>D:\VMs\rac-op</code></strong></td>
+</tr>
+<tr>
+<td>Shared ASM disks</td>
+<td><code>rac-poc\shared\asm1.vdi</code>, <code>asm2.vdi</code></td>
+<td><strong><code>rac-op\shared\asm1.vdi</code>, <code>asm2.vdi</code></strong> (new, empty)</td>
+</tr>
+<tr>
+<td>Private networks (VirtualBox internal)</td>
+<td><code>rac-priv1</code>, <code>rac-priv2</code></td>
+<td><strong><code>op-priv1</code>, <code>op-priv2</code></strong>, same subnets 10.0.11/12.0/24</td>
+</tr>
+<tr>
+<td>Kubernetes cluster name</td>
+<td><code>rac-poc</code></td>
+<td><strong><code>rac-op</code></strong></td>
+</tr>
+<tr>
+<td>Golden VM <code>ol98-golden</code> (2205, 10.0.1.5)</td>
+<td>shared</td>
+<td>shared: only the clone source; nothing changes in it</td>
+</tr>
+<tr>
+<td>NAT Network <code>k8s-public</code></td>
+<td>shared</td>
+<td>shared: the operator lab only adds its own SSH forwards</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Skipped phases:</strong> Phases 1 and 2 built the golden VM, which both labs share. Phase 7 (ASM disks as Kubernetes volumes) and everything after it depend on what the operator expects, so they come after reading Oracle's operator documentation.</p>
+<p><strong>One lab at a time.</strong> Each lab needs about 48 GB of the PC's 64 GB, and both use the same NAT Network. Before you start the operator lab, the manual lab must be powered off, and the other way round:</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">list</span> <span class="n">runningvms</span>
+</code></pre></div>
+<p><strong>Check:</strong> before working on the operator lab, nothing is listed, or only <code>op-*</code> VMs.</p>
+<p><strong>Switching labs later</strong> (after both are built):</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span>
+<span class="c"># stop the manual lab (stop Grid in its pods first, as in "how to shut down")</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$n</span> <span class="k">in</span> <span class="s2">"worker2"</span><span class="p">,</span><span class="s2">"worker1"</span><span class="p">,</span><span class="s2">"controlplane"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">controlvm</span> <span class="nv">$n</span> <span class="n">acpipowerbutton</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span> <span class="p">}</span>
+<span class="c"># start the operator lab</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$n</span> <span class="k">in</span> <span class="s2">"op-controlplane"</span><span class="p">,</span><span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">startvm</span> <span class="nv">$n</span> <span class="p">-</span><span class="n">-type</span> <span class="n">headless</span> <span class="p">}</span>
+</code></pre></div>
+<p>To go back, swap the two lists: stop <code>op-worker2</code>, <code>op-worker1</code>, <code>op-controlplane</code>, then start <code>controlplane</code>, <code>worker1</code>, <code>worker2</code>.</p>
+</section>
+<section class="sec"><h2 id="phase-0-windows-host-and-the-operator-labs-port-forwards"><span class="eyebrow">Phase 0</span>Windows host and the operator lab&#x27;s port forwards</h2>
+<p><strong>Result of this phase:</strong> a clean starting point for the operator lab, the PC checked for room, and SSH port forwards 2220–2222 on the shared <code>k8s-public</code> network. The manual lab and the golden VM are not touched.</p>
+<h3 id="00-start-clean-only-if-you-built-the-operator-lab-before">0.0 Start clean (only if you built the operator lab before)</h3>
+<p><strong>What:</strong> removes an earlier operator lab: the VMs <code>op-controlplane</code>, <code>op-worker1</code>, <code>op-worker2</code>, the folder <code>D:\VMs\rac-op</code> with all its disks, the operator lab's port-forward rules, and the SSH host keys remembered for ports 2220–2222. On a first build it just reports that there's nothing to remove.</p>
+<p><strong>What it never touches:</strong> <code>ol98-golden</code>, <code>controlplane</code>, <code>worker1</code>, <code>worker2</code>, <code>D:\VMs\rac-poc</code> and the <code>k8s-public</code> network itself. Every name in the block starts with <code>op-</code> or <code>rac-op</code>.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span><span class="p">;</span> <span class="nv">$Base</span> <span class="p">=</span> <span class="s2">"D:\VMs\rac-op"</span>
+<span class="nv">$existing</span> <span class="p">=</span> <span class="p">(&amp;</span> <span class="nv">$VB</span> <span class="n">list</span> <span class="n">vms</span><span class="p">)</span> <span class="n">-join</span> <span class="s2">"</span><span class="se">`n</span><span class="s2">"</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$v</span> <span class="k">in</span> <span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">,</span><span class="s2">"op-controlplane"</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nv">$existing</span> <span class="o">-match</span> <span class="p">(</span><span class="s1">'"'</span> <span class="p">+</span> <span class="nv">$v</span> <span class="p">+</span> <span class="s1">'"'</span><span class="p">))</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">controlvm</span> <span class="nv">$v</span> <span class="n">poweroff</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span><span class="p">;</span> <span class="nb">Start-Sleep</span> <span class="n">3</span><span class="p">;</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">unregistervm</span> <span class="nv">$v</span> <span class="p">-</span><span class="n">-delete</span><span class="p">;</span> <span class="s2">"removed VM $v"</span> <span class="p">}</span>
+<span class="p">}</span>
+<span class="nv">$left</span> <span class="p">=</span> <span class="p">(&amp;</span> <span class="nv">$VB</span> <span class="n">list</span> <span class="n">hdds</span><span class="p">)</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^Location:\s+(.*)$'</span> <span class="p">|</span> <span class="k">ForEach</span><span class="n">-Object</span> <span class="p">{</span> <span class="nv">$_</span><span class="p">.</span><span class="n">Matches</span><span class="p">[</span><span class="n">0</span><span class="p">].</span><span class="n">Groups</span><span class="p">[</span><span class="n">1</span><span class="p">].</span><span class="n">Value</span> <span class="p">}</span> <span class="p">|</span> <span class="nb">Where-Object</span> <span class="p">{</span> <span class="nv">$_</span> <span class="o">-like</span> <span class="s2">"$Base\*"</span> <span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$d</span> <span class="k">in</span> <span class="nv">$left</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">closemedium</span> <span class="n">disk</span> <span class="nv">$d</span> <span class="p">-</span><span class="n">-delete</span><span class="p">;</span> <span class="s2">"removed disk $d"</span> <span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="nb">Test-Path</span> <span class="nv">$Base</span><span class="p">)</span> <span class="p">{</span> <span class="nb">Remove-Item</span> <span class="nv">$Base</span> <span class="n">-Recurse</span> <span class="n">-Force</span><span class="p">;</span> <span class="s2">"removed folder $Base"</span> <span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$r</span> <span class="k">in</span> <span class="s2">"ssh-opcp"</span><span class="p">,</span><span class="s2">"ssh-opw1"</span><span class="p">,</span><span class="s2">"ssh-opw2"</span><span class="p">,</span><span class="s2">"k8sapi-op"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">modify</span> <span class="p">-</span><span class="n">-netname</span> <span class="n">k8s-public</span> <span class="p">-</span><span class="n">-port-forward</span><span class="p">-</span><span class="n">4</span> <span class="n">delete</span> <span class="nv">$r</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span> <span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$f</span> <span class="k">in</span> <span class="s2">"$env:USERPROFILE\.ssh\known_hosts"</span><span class="p">,</span> <span class="s2">"$env:USERPROFILE\.ssh\known_hosts_rac_lab"</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nb">Test-Path</span> <span class="nv">$f</span><span class="p">)</span> <span class="p">{</span> <span class="k">foreach</span> <span class="p">(</span><span class="nv">$p</span> <span class="k">in</span> <span class="n">2220</span><span class="p">,</span> <span class="n">2221</span><span class="p">,</span> <span class="n">2222</span><span class="p">)</span> <span class="p">{</span> <span class="n">ssh-keygen</span> <span class="n">-R</span> <span class="s2">"[127.0.0.1]:$p"</span> <span class="o">-f</span> <span class="nv">$f</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span> <span class="p">|</span> <span class="nb">Out-Null</span> <span class="p">}</span> <span class="p">}</span>
+<span class="p">}</span>
+<span class="s2">"--- VMs (the manual lab and ol98-golden must still be listed; no op-*) ---"</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">list</span> <span class="n">vms</span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>list vms</code> still shows <code>ol98-golden</code>, <code>controlplane</code>, <code>worker1</code> and <code>worker2</code>, and no <code>op-*</code> VM.</p>
+<h3 id="01-check-the-host">0.1 Check the host</h3>
+<p><strong>Why:</strong> the operator lab needs the same memory and CPU as the manual lab, about 48 GB, so only one lab can run at a time. On disk it needs its own room: two fixed 50 GB ASM disks are written in full straight away, and the workers' disks grow as they fill.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">list</span> <span class="n">runningvms</span>
+<span class="nb">Get-CimInstance</span> <span class="n">Win32_Processor</span> <span class="p">|</span> <span class="nb">Select-Object</span> <span class="n">NumberOfCores</span><span class="p">,</span> <span class="n">NumberOfLogicalProcessors</span>
+<span class="no">[Math]</span><span class="p">::</span><span class="n">Round</span><span class="p">((</span><span class="nb">Get-CimInstance</span> <span class="n">Win32_ComputerSystem</span><span class="p">).</span><span class="n">TotalPhysicalMemory</span> <span class="p">/</span> <span class="n">1GB</span><span class="p">)</span>
+<span class="nb">Get-PSDrive</span> <span class="n">D</span> <span class="p">|</span> <span class="nb">Select-Object</span> <span class="p">@{</span><span class="n">n</span><span class="p">=</span><span class="s1">'FreeGB'</span><span class="p">;</span><span class="n">e</span><span class="p">={</span><span class="no">[math]</span><span class="p">::</span><span class="n">Round</span><span class="p">(</span><span class="nv">$_</span><span class="p">.</span><span class="n">Free</span><span class="p">/</span><span class="n">1GB</span><span class="p">)}}</span>
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li><code>list runningvms</code> prints <strong>nothing</strong>: the manual lab and the golden VM are off;</li>
+<li>8 or more logical processors and about 64 GB of RAM;</li>
+<li><strong>300 GB or more free on D:</strong>. Less than about 150 GB stops you at 3.3, when the ASM disks are created.</li>
+</ul>
+<h3 id="02-ssh-key-and-lab-ssh-settings-already-done">0.2 SSH key and lab SSH settings (already done)</h3>
+<p>The manual lab's Phase 0.2 set these up, and they cover every port on <code>127.0.0.1</code>, including 2220–2222. This block only checks them; it changes nothing that is already there.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">if</span> <span class="p">(</span><span class="o">-not</span> <span class="p">(</span><span class="nb">Test-Path</span> <span class="s2">"$env:USERPROFILE\.ssh\id_ed25519"</span><span class="p">))</span> <span class="p">{</span> <span class="n">ssh-keygen</span> <span class="n">-t</span> <span class="n">ed25519</span> <span class="p">}</span>   <span class="c"># press Enter at every prompt</span>
+<span class="nb">Select-String</span> <span class="n">-Path</span> <span class="s2">"$env:USERPROFILE\.ssh\config"</span> <span class="n">-Pattern</span> <span class="s1">'^Host 127\.0\.0\.1$'</span> <span class="n">-Context</span> <span class="n">0</span><span class="p">,</span><span class="n">5</span>
+</code></pre></div>
+<p><strong>Check:</strong> the <code>Host 127.0.0.1</code> section with its five settings (<code>User root</code>, <code>StrictHostKeyChecking no</code>, <code>UserKnownHostsFile ~/.ssh/known_hosts_rac_lab</code>, <code>LogLevel ERROR</code>, <code>ServerAliveInterval 30</code>). If nothing prints, run the manual guide's 0.2 block once.</p>
+<h3 id="03-port-forwards-for-the-operator-lab">0.3 Port forwards for the operator lab</h3>
+<p><strong>What:</strong> three SSH forwards on the existing <code>k8s-public</code> network: 2220 → op-controlplane, 2221 → op-worker1, 2222 → op-worker2. The golden VM's forward, 2205 → 10.0.1.5, is already there and is reused for personalising the clones in Phase 4.</p>
+<p><strong>Why on the same network:</strong> the two labs never run at the same time, so they can share <code>k8s-public</code> and its NAT. Different IPs (.20–.22) and different ports keep them apart; the rule names start with <code>ssh-op</code> so 0.0 can remove exactly these.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">modify</span> <span class="p">-</span><span class="n">-netname</span> <span class="n">k8s-public</span> <span class="p">-</span><span class="n">-port-forward</span><span class="p">-</span><span class="n">4</span> <span class="s2">"ssh-opcp:tcp:[]:2220:[10.0.1.20]:22"</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">modify</span> <span class="p">-</span><span class="n">-netname</span> <span class="n">k8s-public</span> <span class="p">-</span><span class="n">-port-forward</span><span class="p">-</span><span class="n">4</span> <span class="s2">"ssh-opw1:tcp:[]:2221:[10.0.1.21]:22"</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">modify</span> <span class="p">-</span><span class="n">-netname</span> <span class="n">k8s-public</span> <span class="p">-</span><span class="n">-port-forward</span><span class="p">-</span><span class="n">4</span> <span class="s2">"ssh-opw2:tcp:[]:2222:[10.0.1.22]:22"</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">list</span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>natnetwork list</code> shows <code>k8s-public</code> with the manual lab's rules (<code>ssh-golden</code>, <code>ssh-cp</code>, <code>ssh-w1</code>, <code>ssh-w2</code>, and any NodePort rules) <strong>plus</strong> <code>ssh-opcp</code>, <code>ssh-opw1</code> and <code>ssh-opw2</code>. If a line says the rule already exists, it was added before; that's fine.</p>
+</section>
+<section class="sec"><h2 id="phase-3-clone-the-three-operator-lab-nodes"><span class="eyebrow">Phase 3</span>Clone the three operator-lab nodes</h2>
+<p><strong>Result of this phase:</strong> three VMs (<code>op-controlplane</code>, <code>op-worker1</code>, <code>op-worker2</code>) cloned from the same golden image as the manual lab, the workers with two data disks each and their private NICs on <code>op-priv1</code> / <code>op-priv2</code>, and two new 50 GB disks that <strong>both</strong> workers share for ASM.</p>
+<h3 id="31-check-that-the-golden-vm-is-still-sealed">3.1 Check that the golden VM is still sealed</h3>
+<p><strong>Why:</strong> clones must come from the <strong>sealed</strong> golden image: no machine ID, no SSH host keys. You sealed it before cloning the manual lab. If the golden VM has been started since then, it has made itself a new machine ID and host keys, and every clone would share them. Kubernetes refuses to join nodes with the same machine ID.</p>
+<p><strong>How to tell without starting it:</strong> VirtualBox records when a VM last changed state. If the golden VM's last change (its power-off after sealing) is <strong>older</strong> than the manual lab's clones, nobody has started it since.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span><span class="p">;</span> <span class="nv">$g</span> <span class="p">=</span> <span class="s2">"ol98-golden"</span>
+<span class="nv">$info</span> <span class="p">=</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">showvminfo</span> <span class="nv">$g</span> <span class="p">-</span><span class="n">-machinereadable</span>
+<span class="nv">$state</span> <span class="p">=</span> <span class="p">(</span><span class="nv">$info</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^VMState="(.*)"'</span><span class="p">).</span><span class="n">Matches</span><span class="p">[</span><span class="n">0</span><span class="p">].</span><span class="n">Groups</span><span class="p">[</span><span class="n">1</span><span class="p">].</span><span class="n">Value</span>
+<span class="nv">$raw</span> <span class="p">=</span> <span class="p">(</span><span class="nv">$info</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^VMStateChangeTime="(.*)"'</span><span class="p">).</span><span class="n">Matches</span><span class="p">[</span><span class="n">0</span><span class="p">].</span><span class="n">Groups</span><span class="p">[</span><span class="n">1</span><span class="p">].</span><span class="n">Value</span>
+<span class="nv">$changed</span> <span class="p">=</span> <span class="no">[datetime]</span><span class="p">::</span><span class="n">SpecifyKind</span><span class="p">(</span><span class="no">[datetime]</span><span class="p">::</span><span class="n">ParseExact</span><span class="p">(</span><span class="nv">$raw</span><span class="p">.</span><span class="n">Substring</span><span class="p">(</span><span class="n">0</span><span class="p">,</span><span class="n">19</span><span class="p">),</span> <span class="s1">'yyyy-MM-ddTHH:mm:ss'</span><span class="p">,</span> <span class="nv">$null</span><span class="p">),</span> <span class="s1">'Utc'</span><span class="p">)</span>   <span class="c"># VirtualBox writes UTC</span>
+<span class="nv">$cpCfg</span> <span class="p">=</span> <span class="p">(&amp;</span> <span class="nv">$VB</span> <span class="n">showvminfo</span> <span class="n">controlplane</span> <span class="p">-</span><span class="n">-machinereadable</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^CfgFile="(.*)"'</span><span class="p">).</span><span class="n">Matches</span><span class="p">[</span><span class="n">0</span><span class="p">].</span><span class="n">Groups</span><span class="p">[</span><span class="n">1</span><span class="p">].</span><span class="n">Value</span>
+<span class="nv">$cloned</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Get-Item</span> <span class="p">(</span><span class="nb">Split-Path</span> <span class="nv">$cpCfg</span><span class="p">)).</span><span class="n">CreationTimeUtc</span>   <span class="c"># when the manual lab's controlplane was cloned</span>
+<span class="s2">"manual lab folder:    </span><span class="p">$(</span><span class="nb">Split-Path</span> <span class="nv">$cpCfg</span><span class="p">)</span><span class="s2">"</span>
+<span class="s2">"golden state:         $state"</span>
+<span class="s2">"golden last changed:  </span><span class="p">$(</span><span class="nv">$changed</span><span class="p">.</span><span class="n">ToString</span><span class="p">(</span><span class="s1">'u'</span><span class="p">))</span><span class="s2">"</span>
+<span class="s2">"manual lab cloned:    </span><span class="p">$(</span><span class="nv">$cloned</span><span class="p">.</span><span class="n">ToString</span><span class="p">(</span><span class="s1">'u'</span><span class="p">))</span><span class="s2">"</span>
+<span class="k">if</span> <span class="p">(</span><span class="nv">$state</span> <span class="o">-eq</span> <span class="s1">'poweroff'</span> <span class="o">-and</span> <span class="nv">$changed</span> <span class="o">-lt</span> <span class="nv">$cloned</span><span class="p">)</span> <span class="p">{</span> <span class="s2">"OK: still sealed, not started since the manual lab was cloned"</span> <span class="p">}</span> <span class="k">else</span> <span class="p">{</span> <span class="s2">"STOP: golden VM was started after the seal; reseal it (below)"</span> <span class="p">}</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">snapshot</span> <span class="nv">$g</span> <span class="n">list</span>
+</code></pre></div>
+<p><strong>Check:</strong> the line says <code>OK: still sealed…</code>, and the snapshot list shows the <code>pre-seal</code> snapshot. Then go straight to 3.2. The block finds the manual lab's folder from VirtualBox itself, wherever it is on your disk.</p>
+<p><strong>Only if it says STOP:</strong> seal it again, in place. Don't restore the <code>pre-seal</code> snapshot: fixes made to the golden image after that snapshot would be lost. Starting the golden VM gives it a new machine ID and host keys for a moment; the seal block removes them again and powers it off.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note">(only after a STOP in the check above)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="p">&amp;</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span> <span class="n">startvm</span> <span class="n">ol98-golden</span> <span class="p">-</span><span class="n">-type</span> <span class="n">headless</span>
+<span class="n">ssh-keygen</span> <span class="n">-R</span> <span class="s2">"[127.0.0.1]:2205"</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span>
+</code></pre></div>
+<div class="cmd"><div class="cmd-head"><span class="where node">golden VM</span><span class="where-note">(the last command powers it off; don&#x27;t start it again before cloning)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>dnf<span class="w"> </span>clean<span class="w"> </span>all
+rm<span class="w"> </span>-f<span class="w"> </span>/etc/ssh/ssh_host_*
+truncate<span class="w"> </span>-s<span class="w"> </span><span class="m">0</span><span class="w"> </span>/etc/machine-id
+rm<span class="w"> </span>-f<span class="w"> </span>/var/lib/dbus/machine-id
+rm<span class="w"> </span>-rf<span class="w"> </span>/tmp/*<span class="w"> </span>/var/tmp/*
+journalctl<span class="w"> </span>--rotate<span class="p">;</span><span class="w"> </span>journalctl<span class="w"> </span>--vacuum-time<span class="o">=</span>1s
+rm<span class="w"> </span>-f<span class="w"> </span>/root/.bash_history<span class="p">;</span><span class="w"> </span><span class="nb">history</span><span class="w"> </span>-c
+poweroff
+</code></pre></div>
+<p>If SSH warns that the host key for port 2205 has changed, run <code>ssh-keygen -R "[127.0.0.1]:2205"</code> in PowerShell and connect again.</p>
+<h3 id="32-clone-and-size-the-nodes">3.2 Clone and size the nodes</h3>
+<p><strong>Why these sizes:</strong> the same as the manual lab. op-controlplane gets 2 vCPU and 4 GB with no private NICs; each worker gets 4 vCPU and 22 GB, an 80 GB disk for <code>/scratch</code> and a 100 GB disk for <code>/var/lib/containers</code>.</p>
+<p><strong>What's different:</strong> the workers' second and third NICs move from the manual lab's internal networks <code>rac-priv1</code> / <code>rac-priv2</code> to the operator lab's <code>op-priv1</code> / <code>op-priv2</code>. The clones inherit the golden VM's NIC settings, including the "Allow All" promiscuous mode Multus needs; only the network names change.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span><span class="p">;</span> <span class="nv">$Base</span> <span class="p">=</span> <span class="s2">"D:\VMs\rac-op"</span><span class="p">;</span> <span class="nv">$g</span> <span class="p">=</span> <span class="s2">"ol98-golden"</span>
+<span class="k">while</span> <span class="p">(</span><span class="s2">"</span><span class="p">$(&amp;</span> <span class="nv">$VB</span> <span class="n">showvminfo</span> <span class="nv">$g</span> <span class="p">-</span><span class="n">-machinereadable</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^VMState='</span><span class="p">)</span><span class="s2">"</span> <span class="o">-notmatch</span> <span class="s1">'poweroff'</span><span class="p">)</span> <span class="p">{</span> <span class="nb">Start-Sleep</span> <span class="n">3</span> <span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$n</span> <span class="k">in</span> <span class="s2">"op-controlplane"</span><span class="p">,</span><span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">clonevm</span> <span class="nv">$g</span> <span class="p">-</span><span class="n">-name</span> <span class="nv">$n</span> <span class="p">-</span><span class="n">-basefolder</span> <span class="nv">$Base</span> <span class="p">-</span><span class="n">-mode</span> <span class="n">machine</span> <span class="p">-</span><span class="n">-register</span> <span class="p">}</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">modifyvm</span> <span class="n">op-controlplane</span> <span class="p">-</span><span class="n">-cpus</span> <span class="n">2</span> <span class="p">-</span><span class="n">-memory</span> <span class="n">4096</span> <span class="p">-</span><span class="n">-nic2</span> <span class="n">none</span> <span class="p">-</span><span class="n">-nic3</span> <span class="n">none</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$w</span> <span class="k">in</span> <span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">modifyvm</span> <span class="nv">$w</span> <span class="p">-</span><span class="n">-cpus</span> <span class="n">4</span> <span class="p">-</span><span class="n">-memory</span> <span class="n">22528</span> <span class="p">-</span><span class="n">-intnet2</span> <span class="n">op-priv1</span> <span class="p">-</span><span class="n">-intnet3</span> <span class="n">op-priv2</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">createmedium</span> <span class="n">disk</span> <span class="p">-</span><span class="n">-filename</span> <span class="s2">"$Base\$w\$w-scratch.vdi"</span> <span class="p">-</span><span class="n">-size</span> <span class="n">81920</span> <span class="p">-</span><span class="n">-variant</span> <span class="n">Standard</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">createmedium</span> <span class="n">disk</span> <span class="p">-</span><span class="n">-filename</span> <span class="s2">"$Base\$w\$w-containers.vdi"</span> <span class="p">-</span><span class="n">-size</span> <span class="n">102400</span> <span class="p">-</span><span class="n">-variant</span> <span class="n">Standard</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">storageattach</span> <span class="nv">$w</span> <span class="p">-</span><span class="n">-storagectl</span> <span class="n">SATA</span> <span class="p">-</span><span class="n">-port</span> <span class="n">1</span> <span class="p">-</span><span class="n">-device</span> <span class="n">0</span> <span class="p">-</span><span class="n">-type</span> <span class="n">hdd</span> <span class="p">-</span><span class="n">-medium</span> <span class="s2">"$Base\$w\$w-scratch.vdi"</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">storageattach</span> <span class="nv">$w</span> <span class="p">-</span><span class="n">-storagectl</span> <span class="n">SATA</span> <span class="p">-</span><span class="n">-port</span> <span class="n">2</span> <span class="p">-</span><span class="n">-device</span> <span class="n">0</span> <span class="p">-</span><span class="n">-type</span> <span class="n">hdd</span> <span class="p">-</span><span class="n">-medium</span> <span class="s2">"$Base\$w\$w-containers.vdi"</span>
+<span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$n</span> <span class="k">in</span> <span class="s2">"op-controlplane"</span><span class="p">,</span><span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span> <span class="s2">"--- $n"</span><span class="p">;</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">showvminfo</span> <span class="nv">$n</span> <span class="p">-</span><span class="n">-machinereadable</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^(cpus|memory|nic[123]|nat-network1|intnet[23])='</span><span class="p">;</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">showvminfo</span> <span class="nv">$n</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^NIC [23]:'</span> <span class="p">}</span>
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li><strong>op-controlplane:</strong> <code>cpus=2</code>, <code>memory=4096</code>, <code>nic1="natnetwork"</code> with <code>nat-network1="k8s-public"</code>, and <code>nic2="none"</code>, <code>nic3="none"</code>;</li>
+<li><strong>each worker:</strong> <code>cpus=4</code>, <code>memory=22528</code>, <code>nat-network1="k8s-public"</code>, <code>intnet2="op-priv1"</code>, <code>intnet3="op-priv2"</code>, and two <code>NIC 2:</code> / <code>NIC 3:</code> lines that include <strong><code>Promisc Policy: allow-all</code></strong>, each with its own MAC address. (The machine-readable output has no promiscuous-mode line on this VirtualBox version, so the check reads it from the normal output.)</li>
+</ul>
+<h3 id="33-the-shared-asm-disks">3.3 The shared ASM disks</h3>
+<p><strong>What and why:</strong> the same as the manual lab: two fixed-size 50 GB disks, attached to <strong>both</strong> workers as <code>shareable</code>, because RAC needs the same block devices on both nodes. These are <strong>new, empty</strong> disks in <code>D:\VMs\rac-op\shared</code>; the manual lab's disks stay with the manual lab. Don't snapshot the workers: VirtualBox can't snapshot a VM with shareable disks.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span><span class="p">;</span> <span class="nv">$Base</span> <span class="p">=</span> <span class="s2">"D:\VMs\rac-op"</span>
+<span class="nb">New-Item</span> <span class="n">-ItemType</span> <span class="n">Directory</span> <span class="n">-Force</span> <span class="n">-Path</span> <span class="s2">"$Base\shared"</span> <span class="p">|</span> <span class="nb">Out-Null</span>
+<span class="nv">$port</span> <span class="p">=</span> <span class="n">3</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$d</span> <span class="k">in</span> <span class="s2">"asm1"</span><span class="p">,</span><span class="s2">"asm2"</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">createmedium</span> <span class="n">disk</span> <span class="p">-</span><span class="n">-filename</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">-</span><span class="n">-size</span> <span class="n">51200</span> <span class="p">-</span><span class="n">-variant</span> <span class="n">Fixed</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">modifymedium</span> <span class="n">disk</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">-</span><span class="n">-type</span> <span class="n">shareable</span>
+  <span class="k">foreach</span> <span class="p">(</span><span class="nv">$w</span> <span class="k">in</span> <span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">storageattach</span> <span class="nv">$w</span> <span class="p">-</span><span class="n">-storagectl</span> <span class="n">SATA</span> <span class="p">-</span><span class="n">-port</span> <span class="nv">$port</span> <span class="p">-</span><span class="n">-device</span> <span class="n">0</span> <span class="p">-</span><span class="n">-type</span> <span class="n">hdd</span> <span class="p">-</span><span class="n">-medium</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">-</span><span class="n">-mtype</span> <span class="n">shareable</span> <span class="p">}</span>
+  <span class="nv">$port</span><span class="p">++</span>
+<span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$d</span> <span class="k">in</span> <span class="s2">"asm1"</span><span class="p">,</span><span class="s2">"asm2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">showmediuminfo</span> <span class="n">disk</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^(UUID|Location|Type|In use by VMs):|op-worker'</span> <span class="p">}</span>
+</code></pre></div>
+<p><strong>Check:</strong> for <strong>each</strong> disk, <code>Type: shareable</code>, a <code>Location</code> under <code>D:\VMs\rac-op\shared</code>, and both <code>op-worker1</code> and <code>op-worker2</code> under "In use by VMs". Note the first 8 characters of each UUID: inside the workers the disk appears as <code>/dev/disk/by-id/ata-VBOX_HARDDISK_VB&lt;those 8&gt;-...</code>.</p>
+</section>
+<section class="sec"><h2 id="phase-4-personalize-each-node"><span class="eyebrow">Phase 4</span>Personalize each node</h2>
+<p><strong>Result of this phase:</strong> each node has its own name and IP address. The workers also have their private NICs ready for Multus, <code>/scratch</code> and <code>/var/lib/containers</code> on their own disks, the operator's directories, and 4 GB of hugepages.</p>
+<p><strong>Do one node at a time, in the order op-controlplane, op-worker1, op-worker2.</strong> Every clone boots with the golden VM's address 10.0.1.5, and two clones running at once would fight over it. Each node has its own section below with every command written out for it: copy the blocks in order, without changing anything. Start the next node only after the previous one passes its last check.</p>
+<h3 id="41-what-happens-to-each-node-and-why">4.1 What happens to each node, and why</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Step</th>
+<th>op-controlplane</th>
+<th>op-worker1, op-worker2</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a. Start and connect on 2205</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>b. Name, identity, kubelet IP</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>c. Private NICs for Multus</td>
+<td>no: it has no NIC2/NIC3</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>d, e. Data disks <code>/var/lib/containers</code> and <code>/scratch</code></td>
+<td>no: it has only the OS disk</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>f. The operator's directories</td>
+<td>no</td>
+<td>yes (the same on both workers)</td>
+</tr>
+<tr>
+<td>g. HugePages</td>
+<td>no: 2048 pages would lock all of its 4 GB</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Move to its own address, then check it</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Why each step:</strong></p>
+<ul>
+<li><strong>Name, identity and kubelet IP:</strong> the host name becomes the Kubernetes node name. New SSH host keys replace the ones the seal removed. <code>--node-ip</code> matters on the workers, which have three NICs: without it the kubelet may advertise the wrong address, and pod traffic between nodes breaks.</li>
+<li><strong>Private NICs with no IP:</strong> <code>enp0s8</code> and <code>enp0s9</code> are only "parents" for Multus macvlan interfaces. Each RAC pod gets its own interface, IP (10.0.11.x and 10.0.12.x) and MAC address on top of them.</li>
+<li><strong>Promiscuous mode (<code>accept-all-mac-addresses yes</code>):</strong> this was the cause of the hardest network failure in the first build, 100% packet loss between pods. VirtualBox's "Allow All" setting only takes effect when the guest NIC itself is promiscuous. Otherwise the virtual NIC silently drops frames addressed to the pods' macvlan MACs.</li>
+<li><strong>Data disks chosen by size, not by name:</strong> Linux disk names (<code>sdb</code>, <code>sdc</code>...) do <strong>not</strong> follow VirtualBox port order. On worker2 in the manual lab's first build, <code>/dev/sdc</code> was a shared ASM disk, and formatting by name would have wiped the disk both nodes share. The ASM disks are 50 GB, so the sizes tell the disks apart. They're <strong>mounted by UUID</strong> for the same reason, and <strong><code>rsync -aAXH</code></strong> copies the images pulled in Phase 2 together with their SELinux labels.</li>
+<li><strong>The operator's directories with <code>container_file_t</code>:</strong> the operator mounts them into the RAC pods as hostPath volumes; their names follow its <code>racHostSwLocation</code> (<code>/scratch/rac/cluster01</code>) and <code>racNodeName</code> (<code>racnode</code>) settings. With SELinux enforcing, a container can only use host files with the container file label. <code>semanage fcontext</code> makes the label permanent.</li>
+<li><strong>HugePages:</strong> the database SGA goes into 2 MB hugepages, which are locked, never swapped and cheaper for the CPU to map. Kubernetes only gives hugepages to pods on nodes that reserved them: the RAC pods ask for <code>hugepages-2Mi: 4Gi</code>, so each worker reserves 2048 pages. The doc reserves 16384 (32 GB); this lab scales it to the 22 GB workers.</li>
+<li><strong>Moving the address last, in the background:</strong> changing the public IP cuts the SSH session you're typing in. A first attempt died halfway through for exactly that reason. So the change runs detached from your session and ends with a reboot.</li>
+<li><strong><code>ssh-keygen -R</code> before connecting:</strong> every clone has its own host key but answers on the same port, 2205. Without the 0.2 SSH settings, SSH refuses the new key with "REMOTE HOST IDENTIFICATION HAS CHANGED"; removing the old entry avoids that.</li>
+</ul>
+<h3 id="42-op-controlplane">4.2 op-controlplane</h3>
+<p><strong>a. Start it and connect</strong> (port 2205 reaches whichever clone has 10.0.1.5):</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="p">&amp;</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span> <span class="n">startvm</span> <span class="n">op-controlplane</span> <span class="p">-</span><span class="n">-type</span> <span class="n">headless</span>
+<span class="n">ssh-keygen</span> <span class="n">-R</span> <span class="s2">"[127.0.0.1]:2205"</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span>
+<span class="n">ssh</span> <span class="n">-p</span> <span class="n">2205</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span>
+</code></pre></div>
+<p>If SSH says "connection refused" or times out, the VM is still booting: wait 30 seconds and run the <code>ssh</code> line again. Answer <code>yes</code> to the host key question. <strong>Check:</strong> <code>hostname</code> says <code>ol98-golden</code>.</p>
+<p><strong>b. Name, identity and kubelet IP:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>hostnamectl<span class="w"> </span>set-hostname<span class="w"> </span>op-controlplane
+<span class="o">[</span><span class="w"> </span>-s<span class="w"> </span>/etc/machine-id<span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span>systemd-machine-id-setup
+ssh-keygen<span class="w"> </span>-A
+<span class="nb">echo</span><span class="w"> </span><span class="s1">'KUBELET_EXTRA_ARGS="--node-ip=10.0.1.20"'</span><span class="w"> </span>&gt;/etc/sysconfig/kubelet
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"machine-id </span><span class="k">$(</span>cat<span class="w"> </span>/etc/machine-id<span class="k">)</span><span class="s2">  product_uuid </span><span class="k">$(</span>cat<span class="w"> </span>/sys/class/dmi/id/product_uuid<span class="k">)</span><span class="s2">"</span>
+hostname<span class="p">;</span><span class="w"> </span>cat<span class="w"> </span>/etc/sysconfig/kubelet
+</code></pre></div>
+<p><strong>Check:</strong> <code>op-controlplane</code>, <code>--node-ip=10.0.1.20</code>, and a machine ID and product UUID different from the other nodes'.</p>
+<p><strong>c. Move to 10.0.1.20 and reboot</strong> (always last):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note">(still on 10.0.1.5; the session freezes or closes at the end)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>hostname<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"op-controlplane"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+cat<span class="w"> </span>&gt;/root/set-ip.sh<span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">for u in $(nmcli -g UUID con show); do</span>
+<span class="s">  [ "$(nmcli -g connection.interface-name con show $u)" = "enp0s3" ] &amp;&amp; nmcli con delete $u</span>
+<span class="s">done</span>
+<span class="s">nmcli con add type ethernet con-name pub ifname enp0s3 ipv4.method manual ipv4.addresses 10.0.1.20/24 \</span>
+<span class="s">  ipv4.gateway 10.0.1.1 ipv4.dns 8.8.8.8 ipv6.method disabled connection.autoconnect yes</span>
+<span class="s">sleep 2; reboot</span>
+<span class="s">EOF</span>
+setsid<span class="w"> </span>nohup<span class="w"> </span>bash<span class="w"> </span>/root/set-ip.sh<span class="w"> </span>&gt;/root/set-ip.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span>&lt;/dev/null<span class="w"> </span><span class="p">&amp;</span>
+<span class="k">else</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: this VM is </span><span class="k">$(</span>hostname<span class="k">)</span><span class="s2">, not op-controlplane; run step b first"</span><span class="p">;</span><span class="w"> </span><span class="k">fi</span>
+</code></pre></div>
+<p>Your SSH session freezes or closes. That's expected: the VM is moving to 10.0.1.20 and rebooting.</p>
+<p><strong>d. Check it on its own address</strong> (wait about a minute after the move):</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="n">ssh</span> <span class="n">-p</span> <span class="n">2220</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"hostname; ip -4 -br addr show enp0s3; ip -br link show enp0s8; df -h /scratch /var/lib/containers; grep HugePages_Total /proc/meminfo; systemctl is-active crio"</span>
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li><code>op-controlplane</code>, and <code>10.0.1.20/24</code>;</li>
+<li><code>Device "enp0s8" does not exist</code> and <code>df: /scratch: No such file or directory</code>: correct, it has no private NICs and no data disks;</li>
+<li><code>/var/lib/containers</code> is on the root filesystem (<code>/dev/mapper/ol-root</code>);</li>
+<li><code>HugePages_Total: 0</code>, and CRI-O is <code>active</code>.</li>
+</ul>
+<h3 id="43-op-worker1">4.3 op-worker1</h3>
+<p><strong>a. Start it and connect</strong> (port 2205 reaches whichever clone has 10.0.1.5):</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="p">&amp;</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span> <span class="n">startvm</span> <span class="n">op-worker1</span> <span class="p">-</span><span class="n">-type</span> <span class="n">headless</span>
+<span class="n">ssh-keygen</span> <span class="n">-R</span> <span class="s2">"[127.0.0.1]:2205"</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span>
+<span class="n">ssh</span> <span class="n">-p</span> <span class="n">2205</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span>
+</code></pre></div>
+<p>If SSH says "connection refused" or times out, the VM is still booting: wait 30 seconds and run the <code>ssh</code> line again. Answer <code>yes</code> to the host key question. <strong>Check:</strong> <code>hostname</code> says <code>ol98-golden</code>.</p>
+<p><strong>b. Name, identity and kubelet IP:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>hostnamectl<span class="w"> </span>set-hostname<span class="w"> </span>op-worker1
+<span class="o">[</span><span class="w"> </span>-s<span class="w"> </span>/etc/machine-id<span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span>systemd-machine-id-setup
+ssh-keygen<span class="w"> </span>-A
+<span class="nb">echo</span><span class="w"> </span><span class="s1">'KUBELET_EXTRA_ARGS="--node-ip=10.0.1.21"'</span><span class="w"> </span>&gt;/etc/sysconfig/kubelet
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"machine-id </span><span class="k">$(</span>cat<span class="w"> </span>/etc/machine-id<span class="k">)</span><span class="s2">  product_uuid </span><span class="k">$(</span>cat<span class="w"> </span>/sys/class/dmi/id/product_uuid<span class="k">)</span><span class="s2">"</span>
+hostname<span class="p">;</span><span class="w"> </span>cat<span class="w"> </span>/etc/sysconfig/kubelet
+</code></pre></div>
+<p><strong>Check:</strong> <code>op-worker1</code>, <code>--node-ip=10.0.1.21</code>, and a machine ID and product UUID different from the other nodes'.</p>
+<p><strong>c. Private NICs, up with no IP and promiscuous:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>ifn<span class="w"> </span><span class="k">in</span><span class="w"> </span>enp0s8<span class="w"> </span>enp0s9<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span>u<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="k">$(</span>nmcli<span class="w"> </span>-g<span class="w"> </span>UUID<span class="w"> </span>con<span class="w"> </span>show<span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>nmcli<span class="w"> </span>-g<span class="w"> </span>connection.interface-name<span class="w"> </span>con<span class="w"> </span>show<span class="w"> </span><span class="nv">$u</span><span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"</span><span class="nv">$ifn</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>nmcli<span class="w"> </span>con<span class="w"> </span>delete<span class="w"> </span><span class="nv">$u</span>
+<span class="w">  </span><span class="k">done</span>
+<span class="w">  </span>nmcli<span class="w"> </span>con<span class="w"> </span>add<span class="w"> </span><span class="nb">type</span><span class="w"> </span>ethernet<span class="w"> </span>con-name<span class="w"> </span>rac-<span class="nv">$ifn</span><span class="w"> </span>ifname<span class="w"> </span><span class="nv">$ifn</span><span class="w"> </span>ipv4.method<span class="w"> </span>disabled<span class="w"> </span>ipv6.method<span class="w"> </span>disabled<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="m">802</span>-3-ethernet.mtu<span class="w"> </span><span class="m">1500</span><span class="w"> </span><span class="m">802</span>-3-ethernet.accept-all-mac-addresses<span class="w"> </span>yes<span class="w"> </span>connection.autoconnect<span class="w"> </span>yes
+<span class="k">done</span>
+ip<span class="w"> </span>-br<span class="w"> </span>link<span class="w"> </span>show<span class="w"> </span>enp0s8<span class="p">;</span><span class="w"> </span>ip<span class="w"> </span>-br<span class="w"> </span>link<span class="w"> </span>show<span class="w"> </span>enp0s9
+</code></pre></div>
+<p><strong>Check:</strong> both NICs show <code>UP</code> and have no IPv4 address. <code>PROMISC</code> shows after the reboot in step h.</p>
+<p><strong>d. Find the two data disks by size:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>lsblk<span class="w"> </span>-d<span class="w"> </span>-o<span class="w"> </span>NAME,SIZE,TYPE
+pick<span class="o">()</span><span class="w"> </span><span class="o">{</span><span class="w"> </span>lsblk<span class="w"> </span>-dbno<span class="w"> </span>NAME,SIZE,TYPE<span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span>-v<span class="w"> </span><span class="nv">lo</span><span class="o">=</span><span class="k">$((</span><span class="w"> </span><span class="o">(</span><span class="nv">$1</span><span class="o">-</span><span class="m">2</span><span class="o">)*</span><span class="m">1024</span><span class="o">**</span><span class="m">3</span><span class="w"> </span><span class="k">))</span><span class="w"> </span>-v<span class="w"> </span><span class="nv">hi</span><span class="o">=</span><span class="k">$((</span><span class="w"> </span><span class="o">(</span><span class="nv">$1</span><span class="o">+</span><span class="m">2</span><span class="o">)*</span><span class="m">1024</span><span class="o">**</span><span class="m">3</span><span class="w"> </span><span class="k">))</span><span class="w"> </span><span class="s1">'$3=="disk" &amp;&amp; $2&gt;=lo &amp;&amp; $2&lt;=hi {print "/dev/"$1}'</span><span class="p">;</span><span class="w"> </span><span class="o">}</span>
+<span class="nv">CONT</span><span class="o">=</span><span class="k">$(</span>pick<span class="w"> </span><span class="m">100</span><span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="nv">SCRATCH</span><span class="o">=</span><span class="k">$(</span>pick<span class="w"> </span><span class="m">80</span><span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"containers=</span><span class="nv">$CONT</span><span class="s2"> scratch=</span><span class="nv">$SCRATCH</span><span class="s2">"</span>
+<span class="o">[</span><span class="w"> </span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$CONT</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-w<span class="k">)</span><span class="w"> </span>-eq<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$SCRATCH</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-w<span class="k">)</span><span class="w"> </span>-eq<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>blkid<span class="w"> </span>-s<span class="w"> </span>TYPE<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span><span class="nv">$CONT</span><span class="w"> </span><span class="nv">$SCRATCH</span><span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"OK: two blank disks found"</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: check lsblk before formatting"</span>
+</code></pre></div>
+<p><strong>Check:</strong> it prints <code>OK: two blank disks found</code>. If it prints STOP, don't go on; paste the <code>lsblk</code> output.</p>
+<p><strong>e. Format and mount them</strong> (same session as d; it formats nothing unless d found the two blank disks):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1</span><span class="where-note">(still on 10.0.1.5, same session as step d)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-b<span class="w"> </span><span class="s2">"</span><span class="nv">$CONT</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-b<span class="w"> </span><span class="s2">"</span><span class="nv">$SCRATCH</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="nv">$CONT</span><span class="s2">"</span><span class="w"> </span>!<span class="o">=</span><span class="w"> </span><span class="s2">"</span><span class="nv">$SCRATCH</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>blkid<span class="w"> </span>-s<span class="w"> </span>TYPE<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span><span class="nv">$CONT</span><span class="w"> </span><span class="nv">$SCRATCH</span><span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+systemctl<span class="w"> </span>stop<span class="w"> </span>kubelet<span class="w"> </span>crio
+mkfs.xfs<span class="w"> </span>-q<span class="w"> </span>-f<span class="w"> </span>-L<span class="w"> </span>containers<span class="w"> </span><span class="nv">$CONT</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span>/mnt/newcont<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>mount<span class="w"> </span><span class="nv">$CONT</span><span class="w"> </span>/mnt/newcont
+rsync<span class="w"> </span>-aAXH<span class="w"> </span>/var/lib/containers/<span class="w"> </span>/mnt/newcont/
+umount<span class="w"> </span>/mnt/newcont<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>rmdir<span class="w"> </span>/mnt/newcont
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"UUID=</span><span class="k">$(</span>blkid<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span>-s<span class="w"> </span>UUID<span class="w"> </span><span class="nv">$CONT</span><span class="k">)</span><span class="s2">  /var/lib/containers  xfs  defaults  0 0"</span><span class="w"> </span>&gt;&gt;/etc/fstab
+mkfs.xfs<span class="w"> </span>-q<span class="w"> </span>-f<span class="w"> </span>-L<span class="w"> </span>scratch<span class="w"> </span><span class="nv">$SCRATCH</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span>/scratch
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"UUID=</span><span class="k">$(</span>blkid<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span>-s<span class="w"> </span>UUID<span class="w"> </span><span class="nv">$SCRATCH</span><span class="k">)</span><span class="s2">  /scratch  xfs  defaults  0 0"</span><span class="w"> </span>&gt;&gt;/etc/fstab
+systemctl<span class="w"> </span>daemon-reload
+mount<span class="w"> </span>/var/lib/containers<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>mount<span class="w"> </span>/scratch
+restorecon<span class="w"> </span>-R<span class="w"> </span>/var/lib/containers
+df<span class="w"> </span>-h<span class="w"> </span>/scratch<span class="w"> </span>/var/lib/containers
+<span class="k">else</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: nothing formatted. Run step d in this same session; it must print OK"</span><span class="p">;</span><span class="w"> </span><span class="k">fi</span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>/scratch</code> about 80 G and <code>/var/lib/containers</code> about 100 G.</p>
+<p><strong>f. The operator's directories, with SELinux labels:</strong> <code>/scratch/rac/cluster01/racnode1</code> and <code>/scratch/rac/cluster01/racnode2</code> (the operator mounts one of them into each RAC pod as <code>/u01</code>), and <code>/scratch/software/stage</code> (the Oracle zips). <strong>Both workers get both node directories:</strong> the operator may place either RAC pod on either labelled worker.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>d<span class="w"> </span><span class="k">in</span><span class="w"> </span>/scratch/rac/cluster01/racnode1<span class="w"> </span>/scratch/rac/cluster01/racnode2<span class="w"> </span>/scratch/software/stage<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>mkdir<span class="w"> </span>-p<span class="w"> </span><span class="nv">$d</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+chown<span class="w"> </span>-R<span class="w"> </span><span class="m">54321</span>:54321<span class="w"> </span>/scratch/rac/cluster01
+semanage<span class="w"> </span>fcontext<span class="w"> </span>-a<span class="w"> </span>-t<span class="w"> </span>container_file_t<span class="w"> </span><span class="s2">"/scratch/rac/cluster01(/.*)?"</span>
+semanage<span class="w"> </span>fcontext<span class="w"> </span>-a<span class="w"> </span>-t<span class="w"> </span>container_file_t<span class="w"> </span><span class="s2">"/scratch/software/stage(/.*)?"</span>
+restorecon<span class="w"> </span>-RF<span class="w"> </span>/scratch/rac/cluster01<span class="w"> </span>/scratch/software/stage
+ls<span class="w"> </span>-Zd<span class="w"> </span>/scratch/rac/cluster01/racnode1<span class="w"> </span>/scratch/rac/cluster01/racnode2<span class="w"> </span>/scratch/software/stage<span class="p">;</span><span class="w"> </span>ls<span class="w"> </span>-ld<span class="w"> </span>/scratch/rac/cluster01/racnode*
+</code></pre></div>
+<p><strong>Check:</strong> all three directories show <code>container_file_t</code>, and both <code>racnode*</code> directories are owned by <code>54321 54321</code>, shown as <code>oracle oinstall</code> if the host has those users: the IDs of <code>oracle</code> and <code>oinstall</code> inside the RAC image.</p>
+<p><strong>g. HugePages:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">echo</span><span class="w"> </span><span class="s2">"vm.nr_hugepages = 2048"</span><span class="w"> </span>&gt;/etc/sysctl.d/92-hugepages.conf
+sysctl<span class="w"> </span>-p<span class="w"> </span>/etc/sysctl.d/92-hugepages.conf
+grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'HugePages_Total|Hugepagesize'</span><span class="w"> </span>/proc/meminfo
+</code></pre></div>
+<p><strong>Check:</strong> <code>HugePages_Total: 2048</code> and <code>Hugepagesize: 2048 kB</code>.</p>
+<p><strong>h. Move to 10.0.1.21 and reboot</strong> (always last):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1</span><span class="where-note">(still on 10.0.1.5; the session freezes or closes at the end)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>hostname<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"op-worker1"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+cat<span class="w"> </span>&gt;/root/set-ip.sh<span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">for u in $(nmcli -g UUID con show); do</span>
+<span class="s">  [ "$(nmcli -g connection.interface-name con show $u)" = "enp0s3" ] &amp;&amp; nmcli con delete $u</span>
+<span class="s">done</span>
+<span class="s">nmcli con add type ethernet con-name pub ifname enp0s3 ipv4.method manual ipv4.addresses 10.0.1.21/24 \</span>
+<span class="s">  ipv4.gateway 10.0.1.1 ipv4.dns 8.8.8.8 ipv6.method disabled connection.autoconnect yes</span>
+<span class="s">sleep 2; reboot</span>
+<span class="s">EOF</span>
+setsid<span class="w"> </span>nohup<span class="w"> </span>bash<span class="w"> </span>/root/set-ip.sh<span class="w"> </span>&gt;/root/set-ip.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span>&lt;/dev/null<span class="w"> </span><span class="p">&amp;</span>
+<span class="k">else</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: this VM is </span><span class="k">$(</span>hostname<span class="k">)</span><span class="s2">, not op-worker1; run step b first"</span><span class="p">;</span><span class="w"> </span><span class="k">fi</span>
+</code></pre></div>
+<p>Your SSH session freezes or closes. That's expected: the VM is moving to 10.0.1.21 and rebooting.</p>
+<p><strong>i. Check it on its own address</strong> (wait about a minute after the move):</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="n">ssh</span> <span class="n">-p</span> <span class="n">2221</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"hostname; ip -4 -br addr show enp0s3; ip -br link show enp0s8; df -h /scratch /var/lib/containers; grep HugePages_Total /proc/meminfo; systemctl is-active crio"</span>
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li><code>op-worker1</code>, and <code>10.0.1.21/24</code>;</li>
+<li><code>enp0s8</code> shows <code>UP</code> and <code>PROMISC</code>, with no address;</li>
+<li><code>/scratch</code> is 80 G, and <code>/var/lib/containers</code> is 100 G;</li>
+<li><code>HugePages_Total: 2048</code>;</li>
+<li>CRI-O is <code>active</code>.</li>
+</ul>
+<h3 id="44-op-worker2">4.4 op-worker2</h3>
+<p><strong>a. Start it and connect</strong> (port 2205 reaches whichever clone has 10.0.1.5):</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="p">&amp;</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span> <span class="n">startvm</span> <span class="n">op-worker2</span> <span class="p">-</span><span class="n">-type</span> <span class="n">headless</span>
+<span class="n">ssh-keygen</span> <span class="n">-R</span> <span class="s2">"[127.0.0.1]:2205"</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span>
+<span class="n">ssh</span> <span class="n">-p</span> <span class="n">2205</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span>
+</code></pre></div>
+<p>If SSH says "connection refused" or times out, the VM is still booting: wait 30 seconds and run the <code>ssh</code> line again. Answer <code>yes</code> to the host key question. <strong>Check:</strong> <code>hostname</code> says <code>ol98-golden</code>.</p>
+<p><strong>b. Name, identity and kubelet IP:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker2</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>hostnamectl<span class="w"> </span>set-hostname<span class="w"> </span>op-worker2
+<span class="o">[</span><span class="w"> </span>-s<span class="w"> </span>/etc/machine-id<span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span>systemd-machine-id-setup
+ssh-keygen<span class="w"> </span>-A
+<span class="nb">echo</span><span class="w"> </span><span class="s1">'KUBELET_EXTRA_ARGS="--node-ip=10.0.1.22"'</span><span class="w"> </span>&gt;/etc/sysconfig/kubelet
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"machine-id </span><span class="k">$(</span>cat<span class="w"> </span>/etc/machine-id<span class="k">)</span><span class="s2">  product_uuid </span><span class="k">$(</span>cat<span class="w"> </span>/sys/class/dmi/id/product_uuid<span class="k">)</span><span class="s2">"</span>
+hostname<span class="p">;</span><span class="w"> </span>cat<span class="w"> </span>/etc/sysconfig/kubelet
+</code></pre></div>
+<p><strong>Check:</strong> <code>op-worker2</code>, <code>--node-ip=10.0.1.22</code>, and a machine ID and product UUID different from the other nodes'.</p>
+<p><strong>c. Private NICs, up with no IP and promiscuous:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker2</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>ifn<span class="w"> </span><span class="k">in</span><span class="w"> </span>enp0s8<span class="w"> </span>enp0s9<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span>u<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="k">$(</span>nmcli<span class="w"> </span>-g<span class="w"> </span>UUID<span class="w"> </span>con<span class="w"> </span>show<span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>nmcli<span class="w"> </span>-g<span class="w"> </span>connection.interface-name<span class="w"> </span>con<span class="w"> </span>show<span class="w"> </span><span class="nv">$u</span><span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"</span><span class="nv">$ifn</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>nmcli<span class="w"> </span>con<span class="w"> </span>delete<span class="w"> </span><span class="nv">$u</span>
+<span class="w">  </span><span class="k">done</span>
+<span class="w">  </span>nmcli<span class="w"> </span>con<span class="w"> </span>add<span class="w"> </span><span class="nb">type</span><span class="w"> </span>ethernet<span class="w"> </span>con-name<span class="w"> </span>rac-<span class="nv">$ifn</span><span class="w"> </span>ifname<span class="w"> </span><span class="nv">$ifn</span><span class="w"> </span>ipv4.method<span class="w"> </span>disabled<span class="w"> </span>ipv6.method<span class="w"> </span>disabled<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="m">802</span>-3-ethernet.mtu<span class="w"> </span><span class="m">1500</span><span class="w"> </span><span class="m">802</span>-3-ethernet.accept-all-mac-addresses<span class="w"> </span>yes<span class="w"> </span>connection.autoconnect<span class="w"> </span>yes
+<span class="k">done</span>
+ip<span class="w"> </span>-br<span class="w"> </span>link<span class="w"> </span>show<span class="w"> </span>enp0s8<span class="p">;</span><span class="w"> </span>ip<span class="w"> </span>-br<span class="w"> </span>link<span class="w"> </span>show<span class="w"> </span>enp0s9
+</code></pre></div>
+<p><strong>Check:</strong> both NICs show <code>UP</code> and have no IPv4 address. <code>PROMISC</code> shows after the reboot in step h.</p>
+<p><strong>d. Find the two data disks by size:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker2</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>lsblk<span class="w"> </span>-d<span class="w"> </span>-o<span class="w"> </span>NAME,SIZE,TYPE
+pick<span class="o">()</span><span class="w"> </span><span class="o">{</span><span class="w"> </span>lsblk<span class="w"> </span>-dbno<span class="w"> </span>NAME,SIZE,TYPE<span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span>-v<span class="w"> </span><span class="nv">lo</span><span class="o">=</span><span class="k">$((</span><span class="w"> </span><span class="o">(</span><span class="nv">$1</span><span class="o">-</span><span class="m">2</span><span class="o">)*</span><span class="m">1024</span><span class="o">**</span><span class="m">3</span><span class="w"> </span><span class="k">))</span><span class="w"> </span>-v<span class="w"> </span><span class="nv">hi</span><span class="o">=</span><span class="k">$((</span><span class="w"> </span><span class="o">(</span><span class="nv">$1</span><span class="o">+</span><span class="m">2</span><span class="o">)*</span><span class="m">1024</span><span class="o">**</span><span class="m">3</span><span class="w"> </span><span class="k">))</span><span class="w"> </span><span class="s1">'$3=="disk" &amp;&amp; $2&gt;=lo &amp;&amp; $2&lt;=hi {print "/dev/"$1}'</span><span class="p">;</span><span class="w"> </span><span class="o">}</span>
+<span class="nv">CONT</span><span class="o">=</span><span class="k">$(</span>pick<span class="w"> </span><span class="m">100</span><span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="nv">SCRATCH</span><span class="o">=</span><span class="k">$(</span>pick<span class="w"> </span><span class="m">80</span><span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"containers=</span><span class="nv">$CONT</span><span class="s2"> scratch=</span><span class="nv">$SCRATCH</span><span class="s2">"</span>
+<span class="o">[</span><span class="w"> </span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$CONT</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-w<span class="k">)</span><span class="w"> </span>-eq<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$SCRATCH</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-w<span class="k">)</span><span class="w"> </span>-eq<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>blkid<span class="w"> </span>-s<span class="w"> </span>TYPE<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span><span class="nv">$CONT</span><span class="w"> </span><span class="nv">$SCRATCH</span><span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"OK: two blank disks found"</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: check lsblk before formatting"</span>
+</code></pre></div>
+<p><strong>Check:</strong> it prints <code>OK: two blank disks found</code>. If it prints STOP, don't go on; paste the <code>lsblk</code> output.</p>
+<p><strong>e. Format and mount them</strong> (same session as d; it formats nothing unless d found the two blank disks):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker2</span><span class="where-note">(still on 10.0.1.5, same session as step d)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-b<span class="w"> </span><span class="s2">"</span><span class="nv">$CONT</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-b<span class="w"> </span><span class="s2">"</span><span class="nv">$SCRATCH</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="nv">$CONT</span><span class="s2">"</span><span class="w"> </span>!<span class="o">=</span><span class="w"> </span><span class="s2">"</span><span class="nv">$SCRATCH</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>blkid<span class="w"> </span>-s<span class="w"> </span>TYPE<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span><span class="nv">$CONT</span><span class="w"> </span><span class="nv">$SCRATCH</span><span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+systemctl<span class="w"> </span>stop<span class="w"> </span>kubelet<span class="w"> </span>crio
+mkfs.xfs<span class="w"> </span>-q<span class="w"> </span>-f<span class="w"> </span>-L<span class="w"> </span>containers<span class="w"> </span><span class="nv">$CONT</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span>/mnt/newcont<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>mount<span class="w"> </span><span class="nv">$CONT</span><span class="w"> </span>/mnt/newcont
+rsync<span class="w"> </span>-aAXH<span class="w"> </span>/var/lib/containers/<span class="w"> </span>/mnt/newcont/
+umount<span class="w"> </span>/mnt/newcont<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>rmdir<span class="w"> </span>/mnt/newcont
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"UUID=</span><span class="k">$(</span>blkid<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span>-s<span class="w"> </span>UUID<span class="w"> </span><span class="nv">$CONT</span><span class="k">)</span><span class="s2">  /var/lib/containers  xfs  defaults  0 0"</span><span class="w"> </span>&gt;&gt;/etc/fstab
+mkfs.xfs<span class="w"> </span>-q<span class="w"> </span>-f<span class="w"> </span>-L<span class="w"> </span>scratch<span class="w"> </span><span class="nv">$SCRATCH</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span>/scratch
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"UUID=</span><span class="k">$(</span>blkid<span class="w"> </span>-o<span class="w"> </span>value<span class="w"> </span>-s<span class="w"> </span>UUID<span class="w"> </span><span class="nv">$SCRATCH</span><span class="k">)</span><span class="s2">  /scratch  xfs  defaults  0 0"</span><span class="w"> </span>&gt;&gt;/etc/fstab
+systemctl<span class="w"> </span>daemon-reload
+mount<span class="w"> </span>/var/lib/containers<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>mount<span class="w"> </span>/scratch
+restorecon<span class="w"> </span>-R<span class="w"> </span>/var/lib/containers
+df<span class="w"> </span>-h<span class="w"> </span>/scratch<span class="w"> </span>/var/lib/containers
+<span class="k">else</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: nothing formatted. Run step d in this same session; it must print OK"</span><span class="p">;</span><span class="w"> </span><span class="k">fi</span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>/scratch</code> about 80 G and <code>/var/lib/containers</code> about 100 G.</p>
+<p><strong>f. The operator's directories, with SELinux labels:</strong> <code>/scratch/rac/cluster01/racnode1</code> and <code>/scratch/rac/cluster01/racnode2</code> (the operator mounts one of them into each RAC pod as <code>/u01</code>), and <code>/scratch/software/stage</code> (the Oracle zips). <strong>Both workers get both node directories:</strong> the operator may place either RAC pod on either labelled worker.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker2</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>d<span class="w"> </span><span class="k">in</span><span class="w"> </span>/scratch/rac/cluster01/racnode1<span class="w"> </span>/scratch/rac/cluster01/racnode2<span class="w"> </span>/scratch/software/stage<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>mkdir<span class="w"> </span>-p<span class="w"> </span><span class="nv">$d</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+chown<span class="w"> </span>-R<span class="w"> </span><span class="m">54321</span>:54321<span class="w"> </span>/scratch/rac/cluster01
+semanage<span class="w"> </span>fcontext<span class="w"> </span>-a<span class="w"> </span>-t<span class="w"> </span>container_file_t<span class="w"> </span><span class="s2">"/scratch/rac/cluster01(/.*)?"</span>
+semanage<span class="w"> </span>fcontext<span class="w"> </span>-a<span class="w"> </span>-t<span class="w"> </span>container_file_t<span class="w"> </span><span class="s2">"/scratch/software/stage(/.*)?"</span>
+restorecon<span class="w"> </span>-RF<span class="w"> </span>/scratch/rac/cluster01<span class="w"> </span>/scratch/software/stage
+ls<span class="w"> </span>-Zd<span class="w"> </span>/scratch/rac/cluster01/racnode1<span class="w"> </span>/scratch/rac/cluster01/racnode2<span class="w"> </span>/scratch/software/stage<span class="p">;</span><span class="w"> </span>ls<span class="w"> </span>-ld<span class="w"> </span>/scratch/rac/cluster01/racnode*
+</code></pre></div>
+<p><strong>Check:</strong> all three directories show <code>container_file_t</code>, and both <code>racnode*</code> directories are owned by <code>54321 54321</code>, shown as <code>oracle oinstall</code> if the host has those users: the IDs of <code>oracle</code> and <code>oinstall</code> inside the RAC image.</p>
+<p><strong>g. HugePages:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker2</span><span class="where-note">(still on 10.0.1.5)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">echo</span><span class="w"> </span><span class="s2">"vm.nr_hugepages = 2048"</span><span class="w"> </span>&gt;/etc/sysctl.d/92-hugepages.conf
+sysctl<span class="w"> </span>-p<span class="w"> </span>/etc/sysctl.d/92-hugepages.conf
+grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'HugePages_Total|Hugepagesize'</span><span class="w"> </span>/proc/meminfo
+</code></pre></div>
+<p><strong>Check:</strong> <code>HugePages_Total: 2048</code> and <code>Hugepagesize: 2048 kB</code>.</p>
+<p><strong>h. Move to 10.0.1.22 and reboot</strong> (always last):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker2</span><span class="where-note">(still on 10.0.1.5; the session freezes or closes at the end)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2205 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2205 root@127.0.0.1" aria-label="Copy ssh -p 2205 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>hostname<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"op-worker2"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+cat<span class="w"> </span>&gt;/root/set-ip.sh<span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">for u in $(nmcli -g UUID con show); do</span>
+<span class="s">  [ "$(nmcli -g connection.interface-name con show $u)" = "enp0s3" ] &amp;&amp; nmcli con delete $u</span>
+<span class="s">done</span>
+<span class="s">nmcli con add type ethernet con-name pub ifname enp0s3 ipv4.method manual ipv4.addresses 10.0.1.22/24 \</span>
+<span class="s">  ipv4.gateway 10.0.1.1 ipv4.dns 8.8.8.8 ipv6.method disabled connection.autoconnect yes</span>
+<span class="s">sleep 2; reboot</span>
+<span class="s">EOF</span>
+setsid<span class="w"> </span>nohup<span class="w"> </span>bash<span class="w"> </span>/root/set-ip.sh<span class="w"> </span>&gt;/root/set-ip.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span>&lt;/dev/null<span class="w"> </span><span class="p">&amp;</span>
+<span class="k">else</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: this VM is </span><span class="k">$(</span>hostname<span class="k">)</span><span class="s2">, not op-worker2; run step b first"</span><span class="p">;</span><span class="w"> </span><span class="k">fi</span>
+</code></pre></div>
+<p>Your SSH session freezes or closes. That's expected: the VM is moving to 10.0.1.22 and rebooting.</p>
+<p><strong>i. Check it on its own address</strong> (wait about a minute after the move):</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="n">ssh</span> <span class="n">-p</span> <span class="n">2222</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"hostname; ip -4 -br addr show enp0s3; ip -br link show enp0s8; df -h /scratch /var/lib/containers; grep HugePages_Total /proc/meminfo; systemctl is-active crio"</span>
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li><code>op-worker2</code>, and <code>10.0.1.22/24</code>;</li>
+<li><code>enp0s8</code> shows <code>UP</code> and <code>PROMISC</code>, with no address;</li>
+<li><code>/scratch</code> is 80 G, and <code>/var/lib/containers</code> is 100 G;</li>
+<li><code>HugePages_Total: 2048</code>;</li>
+<li>CRI-O is <code>active</code>.</li>
+</ul>
+<p>When op-worker2 passes its check, all three nodes are on their own addresses. Go on to Phase 5.</p>
+</section>
+<section class="sec"><h2 id="phase-5-kubernetes-with-kubeadm-and-flannel"><span class="eyebrow">Phase 5</span>Kubernetes with kubeadm and Flannel</h2>
+<p><strong>Result of this phase:</strong> a 3-node Kubernetes v1.36 cluster <code>rac-op</code>: the op-controlplane plus op-worker1 and op-worker2, all <code>Ready</code>, with Flannel as the pod network, and both workers labelled for the operator.</p>
+<h3 id="51-the-kubeadm-configuration-op-controlplane">5.1 The kubeadm configuration (op-controlplane)</h3>
+<p>Blocks labelled <code># op-controlplane</code> run in a root shell on the op-controlplane. From here on, keep one PowerShell window connected to it:</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="n">ssh</span> <span class="n">-p</span> <span class="n">2220</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span>
+</code></pre></div>
+<p><strong>Check:</strong> the prompt says <code>[root@op-controlplane ~]#</code>. The same goes for <code># op-worker1</code> (port 2221) and <code># op-worker2</code> (port 2222) when a block needs them.</p>
+<p><strong>Why each part:</strong></p>
+<ul>
+<li><strong><code>advertiseAddress</code> / <code>controlPlaneEndpoint</code> 10.0.1.20:</strong> the API server listens on the public network, not on any other NIC.</li>
+<li><strong><code>criSocket</code> CRI-O:</strong> the runtime chosen in Phase 2.</li>
+<li><strong><code>podSubnet</code> 10.244.0.0/16:</strong> Flannel's default. The doc's Grid response file names <code>eth0:10.244.0.0</code> as the public network inside the pods, so this range has to match.</li>
+<li><strong><code>dnsDomain</code> cluster.local:</strong> the SCAN name becomes <code>racnode-scan.rac.svc.cluster.local</code>.</li>
+<li><strong><code>allowedUnsafeSysctls</code>:</strong> the RAC pods set <code>kernel.shmall</code>, <code>kernel.shmmax</code>, <code>kernel.shmmni</code>, <code>kernel.sem</code> and some <code>net.*</code> settings for themselves. Kubernetes calls these "unsafe" and the kubelet rejects any pod that sets them, unless they're allowed here. These settings are namespaced: they affect only that pod, not the node. The OCNE doc sets this as a kubelet flag; with kubeadm it belongs in the <code>KubeletConfiguration</code>, which every node picks up when it joins.</li>
+</ul>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>cat<span class="w"> </span>&gt;/root/kubeadm-config.yaml<span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">apiVersion: kubeadm.k8s.io/v1beta4</span>
+<span class="s">kind: InitConfiguration</span>
+<span class="s">localAPIEndpoint:</span>
+<span class="s">  advertiseAddress: 10.0.1.20</span>
+<span class="s">  bindPort: 6443</span>
+<span class="s">nodeRegistration:</span>
+<span class="s">  name: op-controlplane</span>
+<span class="s">  criSocket: unix:///var/run/crio/crio.sock</span>
+<span class="s">---</span>
+<span class="s">apiVersion: kubeadm.k8s.io/v1beta4</span>
+<span class="s">kind: ClusterConfiguration</span>
+<span class="s">clusterName: rac-op</span>
+<span class="s">controlPlaneEndpoint: 10.0.1.20:6443</span>
+<span class="s">networking:</span>
+<span class="s">  podSubnet: 10.244.0.0/16</span>
+<span class="s">  serviceSubnet: 10.96.0.0/12</span>
+<span class="s">  dnsDomain: cluster.local</span>
+<span class="s">---</span>
+<span class="s">apiVersion: kubelet.config.k8s.io/v1beta1</span>
+<span class="s">kind: KubeletConfiguration</span>
+<span class="s">cgroupDriver: systemd</span>
+<span class="s">allowedUnsafeSysctls:</span>
+<span class="s">  - "kernel.shm*"</span>
+<span class="s">  - "kernel.sem"</span>
+<span class="s">  - "net.*"</span>
+<span class="s">EOF</span>
+</code></pre></div>
+<h3 id="52-initialise-the-control-plane-op-controlplane">5.2 Initialise the control plane (op-controlplane)</h3>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubeadm<span class="w"> </span>init<span class="w"> </span>--config<span class="w"> </span>/root/kubeadm-config.yaml
+mkdir<span class="w"> </span>-p<span class="w"> </span>~/.kube<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cp<span class="w"> </span>-f<span class="w"> </span>/etc/kubernetes/admin.conf<span class="w"> </span>~/.kube/config
+kubectl<span class="w"> </span>get<span class="w"> </span>nodes
+</code></pre></div>
+<p><strong>Check:</strong> <code>Your Kubernetes control-plane has initialized successfully!</code>. The op-controlplane shows <code>NotReady</code> until there's a pod network in 5.3, which is expected.</p>
+<h3 id="53-flannel-the-pod-network-op-controlplane">5.3 Flannel, the pod network (op-controlplane)</h3>
+<p><strong>What:</strong> Flannel gives every pod an <code>eth0</code> address in 10.244.0.0/16, and routes pod traffic between nodes over the 10.0.1.x network.</p>
+<p><strong>Why:</strong> Kubernetes needs a CNI network before any pod can start. In the RAC pods, <code>eth0</code> is the <strong>public</strong> network: the node names, VIPs and SCAN all resolve to <code>eth0</code> addresses.</p>
+<p>This URL always fetches the newest Flannel release. The lab used the release current on 23 Oct 2026. If a newer one misbehaves, pick a specific version from Flannel's releases page instead of <code>latest</code>.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+kubectl<span class="w"> </span>-n<span class="w"> </span>kube-flannel<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>ds/kube-flannel-ds
+kubectl<span class="w"> </span>get<span class="w"> </span>nodes
+</code></pre></div>
+<p><strong>Check:</strong> the op-controlplane turns <code>Ready</code> within a minute.</p>
+<h3 id="54-join-the-workers">5.4 Join the workers</h3>
+<p><strong>What:</strong> a join command with a fresh token, run on each worker. The PC fetches it from the op-controlplane and runs it on both workers, so there's nothing to copy by hand. The token in it expires after 24 hours.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$join</span> <span class="p">=</span> <span class="n">ssh</span> <span class="n">-p</span> <span class="n">2220</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"kubeadm token create --print-join-command"</span><span class="p">;</span> <span class="nv">$join</span>
+<span class="n">ssh</span> <span class="n">-p</span> <span class="n">2221</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="nv">$join</span>
+<span class="n">ssh</span> <span class="n">-p</span> <span class="n">2222</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="nv">$join</span>
+</code></pre></div>
+<p>Each worker ends with <code>This node has joined the cluster</code>.</p>
+<p>Back on the op-controlplane, label the workers and wait for them. The second label, <code>raccluster=raccluster01</code>, is the operator's: its <code>workerNodeSelector</code> places RAC pods only on nodes with this label.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>label<span class="w"> </span>node<span class="w"> </span>op-worker1<span class="w"> </span>op-worker2<span class="w"> </span>node-role.kubernetes.io/worker<span class="o">=</span><span class="w"> </span>--overwrite
+kubectl<span class="w"> </span>label<span class="w"> </span>node<span class="w"> </span>op-worker1<span class="w"> </span>op-worker2<span class="w"> </span><span class="nv">raccluster</span><span class="o">=</span>raccluster01<span class="w"> </span>--overwrite
+kubectl<span class="w"> </span><span class="nb">wait</span><span class="w"> </span>--for<span class="o">=</span><span class="nv">condition</span><span class="o">=</span>Ready<span class="w"> </span>node<span class="w"> </span>--all<span class="w"> </span>--timeout<span class="o">=</span>600s
+kubectl<span class="w"> </span>get<span class="w"> </span>nodes<span class="w"> </span>-o<span class="w"> </span>wide
+kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-A
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li>three nodes, all <code>Ready</code> and on <code>v1.36.x</code>, with INTERNAL-IP 10.0.1.20, .21 and .22;</li>
+<li>every system pod <code>Running</code>: coredns, etcd, kube-apiserver, kube-proxy, kube-flannel;</li>
+<li><code>kubectl get nodes -l raccluster=raccluster01</code> lists op-worker1 and op-worker2.</li>
+</ul>
+<p>If a worker shows the wrong INTERNAL-IP, the <code>--node-ip</code> setting from Phase 4 is missing.</p>
+<h3 id="55-kubectl-from-your-pc-optional">5.5 kubectl from your PC (optional)</h3>
+<p><strong>Why:</strong> so you can run <code>kubectl</code> from Git Bash on Windows without SSH-ing into op-controlplane first. The manual lab may already use <code>~/.kube/config</code> and host port 6443, so the operator lab gets <strong>its own file</strong>, <code>~/.kube/config-op</code>, and <strong>its own port, 6444</strong>. The two never overwrite each other.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="p">&amp;</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span> <span class="n">natnetwork</span> <span class="n">modify</span> <span class="p">-</span><span class="n">-netname</span> <span class="n">k8s-public</span> <span class="p">-</span><span class="n">-port-forward</span><span class="p">-</span><span class="n">4</span> <span class="s2">"k8sapi-op:tcp:[]:6444:[10.0.1.20]:6443"</span>
+</code></pre></div>
+<div class="cmd"><div class="cmd-head"><span class="where win">Git Bash</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.kube
+scp<span class="w"> </span>-P<span class="w"> </span><span class="m">2220</span><span class="w"> </span>root@127.0.0.1:/etc/kubernetes/admin.conf<span class="w"> </span>~/.kube/config-op
+kubectl<span class="w"> </span>--kubeconfig<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>cygpath<span class="w"> </span>-m<span class="w"> </span>~/.kube/config-op<span class="k">)</span><span class="s2">"</span><span class="w"> </span>config<span class="w"> </span>set-cluster<span class="w"> </span>rac-op<span class="w"> </span>--server<span class="o">=</span>https://127.0.0.1:6444<span class="w"> </span>--tls-server-name<span class="o">=</span>kubernetes
+sed<span class="w"> </span>-i<span class="w"> </span><span class="s1">'/alias kop=/d'</span><span class="w"> </span>~/.bashrc
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"alias kop='kubectl --kubeconfig \"\$(cygpath -m ~/.kube/config-op)\"'"</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.bashrc
+grep<span class="w"> </span>-q<span class="w"> </span>MSYS_NO_PATHCONV<span class="w"> </span>~/.bashrc<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s1">'export MSYS_NO_PATHCONV=1'</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.bashrc
+<span class="nb">source</span><span class="w"> </span>~/.bashrc
+kop<span class="w"> </span>get<span class="w"> </span>nodes
+</code></pre></div>
+<p><strong>Why each line:</strong></p>
+<ul>
+<li><strong><code>k8sapi-op</code> on 6444:</strong> the manual lab's forward uses host port 6443. A second rule can't use the same host port, so the operator lab's API server is reached on 6444; inside the lab it still listens on 6443.</li>
+<li><strong><code>--kubeconfig ~/.kube/config-op</code>:</strong> keeps the operator lab's credentials apart from the manual lab's <code>~/.kube/config</code>.</li>
+<li><strong><code>set-cluster rac-op</code>:</strong> kubeadm names the cluster entry after <code>clusterName</code> (<code>rac-op</code>), so that's the entry to point at 127.0.0.1:6444.</li>
+<li><strong><code>--tls-server-name=kubernetes</code>:</strong> the API server's certificate is for <code>kubernetes</code> and 10.0.1.20, not 127.0.0.1; this keeps certificate checking on.</li>
+<li><strong><code>kop</code>:</strong> short for <code>kubectl --kubeconfig C:/Users/&lt;you&gt;/.kube/config-op</code>. Use <code>kop</code> for the operator lab and plain <code>kubectl</code> for the manual lab. <code>cygpath -m</code> turns the Git Bash path into a Windows one, because <code>kubectl.exe</code> is a Windows program and <code>MSYS_NO_PATHCONV=1</code> stops Git Bash from converting <code>/c/Users/...</code> for it. Without that, kubectl can't find the file and falls back to <code>localhost:8080</code>.</li>
+</ul>
+<p><strong>Check:</strong> <code>kop get nodes</code> lists <code>op-controlplane</code>, <code>op-worker1</code> and <code>op-worker2</code>. <code>admin.conf</code> gives full control of the cluster; keep it out of anything you share.</p>
+<p><strong>The same in PowerShell:</strong> a <code>kop</code> function in your PowerShell profile. PowerShell passes Windows paths, so no conversion is needed.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">if</span> <span class="p">(</span><span class="o">-not</span> <span class="p">(</span><span class="nb">Test-Path</span> <span class="nv">$PROFILE</span><span class="p">))</span> <span class="p">{</span> <span class="nb">New-Item</span> <span class="n">-ItemType</span> <span class="n">File</span> <span class="n">-Force</span> <span class="n">-Path</span> <span class="nv">$PROFILE</span> <span class="p">|</span> <span class="nb">Out-Null</span> <span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="o">-not</span> <span class="p">(</span><span class="nb">Select-String</span> <span class="n">-Path</span> <span class="nv">$PROFILE</span> <span class="n">-Pattern</span> <span class="s1">'function kop'</span> <span class="n">-Quiet</span><span class="p">))</span> <span class="p">{</span>
+  <span class="nb">Add-Content</span> <span class="n">-Path</span> <span class="nv">$PROFILE</span> <span class="n">-Value</span> <span class="s1">'function kop { kubectl --kubeconfig "$env:USERPROFILE\.kube\config-op" @args }'</span>
+<span class="p">}</span>
+<span class="p">.</span> <span class="nv">$PROFILE</span>
+<span class="n">kop</span> <span class="n">get</span> <span class="n">nodes</span>
+</code></pre></div>
+<p><strong>Check:</strong> the three <code>op-*</code> nodes. If <code>. $PROFILE</code> says running scripts is disabled, run <code>Set-ExecutionPolicy -Scope CurrentUser RemoteSigned</code> once and try again. For a whole session on one lab, <code>$env:KUBECONFIG = "$env:USERPROFILE\.kube\config-op"</code> points plain <code>kubectl</code> at the operator lab until the window closes.</p>
+</section>
+<section class="sec"><h2 id="phase-6-multus-and-the-rac-private-networks"><span class="eyebrow">Phase 6</span>Multus and the RAC private networks</h2>
+<p><strong>Result of this phase:</strong> pods can have two extra interfaces, <code>eth1</code> on 10.0.11.0/24 and <code>eth2</code> on 10.0.12.0/24, with addresses you choose. A test between the workers proves the interconnect works before any Oracle software is involved.</p>
+<h3 id="61-why-rac-needs-multus">6.1 Why RAC needs Multus</h3>
+<p>A Kubernetes pod normally has exactly one network interface, <code>eth0</code>, from the cluster network (Flannel here). RAC needs more than that:</p>
+<ul>
+<li><strong>A public network:</strong> client connections, the VIPs and SCAN. That's <code>eth0</code>.</li>
+<li><strong>A private interconnect:</strong> dedicated, low-latency and not routed through the cluster network. Cache Fusion moves database blocks between the instances over it, and the cluster heartbeat runs on it. If the heartbeat is lost, Grid evicts a node.</li>
+</ul>
+<p><strong>Multus</strong> is a "meta" CNI plugin that attaches additional networks to a pod. Each extra network is described by a <strong>NetworkAttachmentDefinition</strong> (NAD). This lab uses <code>macvlan</code>, which gives the pod its own MAC address directly on the worker's <code>enp0s8</code> / <code>enp0s9</code>. Two networks give Grid's <strong>HAIP</strong> (highly available IP) two paths, so the interconnect survives losing one.</p>
+<h3 id="62-install-multus-op-controlplane">6.2 Install Multus (op-controlplane)</h3>
+<p>The thick-plugin variant runs a small daemon on every node. The URL follows Multus's main branch, as it did in the lab on 23 Oct 2026. For a repeatable build you can replace <code>master</code> with a release tag.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
+kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>ds/kube-multus-ds<span class="w"> </span>--timeout<span class="o">=</span>300s
+</code></pre></div>
+<p><strong>Check:</strong> <code>daemon set "kube-multus-ds" successfully rolled out</code>.</p>
+<h3 id="63-the-two-rac-networks-op-controlplane">6.3 The two RAC networks (op-controlplane)</h3>
+<p><strong>Why each setting:</strong></p>
+<ul>
+<li><strong>Namespace <code>rac</code>:</strong> the operator looks the NADs up in the same namespace as the RAC database it creates, and its samples use <code>rac</code>. The manual lab used a separate <code>multus-rac</code> namespace; this is the one difference from it.</li>
+<li><strong>Names <code>macvlan-conf1</code> / <code>macvlan-conf2</code>:</strong> the names the operator's <code>privateIPDetails</code> will refer to.</li>
+<li><strong><code>master: enp0s8</code> / <code>enp0s9</code>:</strong> the worker NICs prepared in Phase 4. The doc uses <code>ens5</code> / <code>ens6</code>, its own NIC names.</li>
+<li><strong><code>mode: bridge</code>:</strong> pods on the same parent NIC can reach each other.</li>
+<li><strong><code>host-local</code> IPAM with a range of 140–150:</strong> the doc's subnets and ranges.</li>
+<li><strong><code>"capabilities": {"ips": true}</code>:</strong> lets each pod request a <strong>specific</strong> address (10.0.11.141 for racnode1-0, .142 for racnode2-0). Without it, <code>host-local</code> ignores the request and picks addresses per node on its own, so both workers can hand out the same IP. The doc's NADs don't have this line; this is a delta.</li>
+</ul>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>create<span class="w"> </span>namespace<span class="w"> </span>rac
+cat<span class="w"> </span><span class="s">&lt;&lt;'EOF' | kubectl apply -f -</span>
+<span class="s">apiVersion: k8s.cni.cncf.io/v1</span>
+<span class="s">kind: NetworkAttachmentDefinition</span>
+<span class="s">metadata:</span>
+<span class="s">  name: macvlan-conf1</span>
+<span class="s">  namespace: rac</span>
+<span class="s">spec:</span>
+<span class="s">  config: '{ "cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s8", "mode": "bridge",</span>
+<span class="s">    "capabilities": { "ips": true },</span>
+<span class="s">    "ipam": { "type": "host-local", "subnet": "10.0.11.0/24", "rangeStart": "10.0.11.140", "rangeEnd": "10.0.11.150" } }'</span>
+<span class="s">---</span>
+<span class="s">apiVersion: k8s.cni.cncf.io/v1</span>
+<span class="s">kind: NetworkAttachmentDefinition</span>
+<span class="s">metadata:</span>
+<span class="s">  name: macvlan-conf2</span>
+<span class="s">  namespace: rac</span>
+<span class="s">spec:</span>
+<span class="s">  config: '{ "cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s9", "mode": "bridge",</span>
+<span class="s">    "capabilities": { "ips": true },</span>
+<span class="s">    "ipam": { "type": "host-local", "subnet": "10.0.12.0/24", "rangeStart": "10.0.12.140", "rangeEnd": "10.0.12.150" } }'</span>
+<span class="s">EOF</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>network-attachment-definitions
+</code></pre></div>
+<h3 id="64-prove-the-interconnect-op-controlplane">6.4 Prove the interconnect (op-controlplane)</h3>
+<p><strong>What:</strong> one throwaway pod on each worker, each with <code>eth1</code> and <code>eth2</code> at chosen addresses. Then pings across.</p>
+<p><strong>Why now:</strong> if the private network doesn't work, Grid's installer fails much later with a far less obvious error. In the first build, this test is what exposed the promiscuous-mode problem. <code>NET_RAW</code> is added because CRI-O drops it by default and <code>ping</code> needs it.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>n<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nv">o</span><span class="o">=</span><span class="k">$((</span><span class="m">147</span><span class="o">+</span><span class="nv">n</span><span class="k">))</span><span class="p">;</span><span class="w"> </span>cat<span class="w"> </span><span class="s">&lt;&lt;EOF | kubectl apply -f -</span>
+<span class="s">apiVersion: v1</span>
+<span class="s">kind: Pod</span>
+<span class="s">metadata:</span>
+<span class="s">  name: nettest-w$n</span>
+<span class="s">  namespace: rac</span>
+<span class="s">  annotations:</span>
+<span class="s">    k8s.v1.cni.cncf.io/networks: '[{"name":"macvlan-conf1","interface":"eth1","ips":["10.0.11.$o/24"]},{"name":"macvlan-conf2","interface":"eth2","ips":["10.0.12.$o/24"]}]'</span>
+<span class="s">spec:</span>
+<span class="s">  nodeSelector: { kubernetes.io/hostname: op-worker$n }</span>
+<span class="s">  containers:</span>
+<span class="s">  - name: net</span>
+<span class="s">    image: docker.io/library/busybox:1.36</span>
+<span class="s">    command: ["sleep", "infinity"]</span>
+<span class="s">    securityContext: { capabilities: { add: ["NET_RAW"] } }</span>
+<span class="s">EOF</span>
+<span class="k">done</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">wait</span><span class="w"> </span>--for<span class="o">=</span><span class="nv">condition</span><span class="o">=</span>Ready<span class="w"> </span>pod/nettest-w1<span class="w"> </span>pod/nettest-w2<span class="w"> </span>--timeout<span class="o">=</span>300s
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>nettest-w1<span class="w"> </span>--<span class="w"> </span>ip<span class="w"> </span>-4<span class="w"> </span>addr
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>nettest-w1<span class="w"> </span>--<span class="w"> </span>ping<span class="w"> </span>-c3<span class="w"> </span><span class="m">10</span>.0.11.149
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>nettest-w1<span class="w"> </span>--<span class="w"> </span>ping<span class="w"> </span>-c3<span class="w"> </span><span class="m">10</span>.0.12.149
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>nettest-w2<span class="w"> </span>--<span class="w"> </span>ping<span class="w"> </span>-c3<span class="w"> </span><span class="m">10</span>.0.11.148
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>nettest-w2<span class="w"> </span>--<span class="w"> </span>ping<span class="w"> </span>-c3<span class="w"> </span><span class="m">10</span>.0.12.148
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li><code>nettest-w1</code> has <code>eth1</code> 10.0.11.148/24 and <code>eth2</code> 10.0.12.148/24;</li>
+<li>all four pings get 0% packet loss.</li>
+</ul>
+<p>If you get 100% loss, check that <code>enp0s8</code> / <code>enp0s9</code> show <code>PROMISC</code> on both workers (Phase 4, step c on each worker), and that 3.2's check showed <code>Promisc Policy: allow-all</code> for both workers.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>delete<span class="w"> </span>pod<span class="w"> </span>nettest-w1<span class="w"> </span>nettest-w2
+</code></pre></div>
+</section>
+<section class="sec"><h2 id="phase-7-install-oracles-database-operator"><span class="eyebrow">Phase 7</span>Install Oracle&#x27;s database operator</h2>
+<p><strong>Result of this phase:</strong> cert-manager and the Oracle Database Operator running in the cluster, watching namespace <code>rac</code>, with the extra permissions the RAC controller needs: reading nodes and the Multus networks, and creating the ASM PersistentVolumes itself.</p>
+<p><strong>What the operator is:</strong> a controller that runs in its own namespace, <code>oracle-database-operator-system</code>. It adds new object types to Kubernetes, <code>RacDatabase</code> among them. When you later apply one <code>RacDatabase</code> YAML, the operator creates everything the manual lab built by hand in its Phases 7–12: the PVs, the headless Services, the StatefulSets, the Grid and database installs and the database.</p>
+<h3 id="71-get-the-operators-manifests-op-controlplane">7.1 Get the operator's manifests (op-controlplane)</h3>
+<p><strong>Why a copy of the repository:</strong> the install files are generated for the namespaces the operator should watch, and the RAC permission files live in the repository. The lab used the version current on 26 Oct 2026 (release v2.2.0). The block prints the exact commit, so you can note it.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">command</span><span class="w"> </span>-v<span class="w"> </span>git<span class="w"> </span>&gt;/dev/null<span class="w"> </span><span class="o">||</span><span class="w"> </span>dnf<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>-q<span class="w"> </span>git
+rm<span class="w"> </span>-rf<span class="w"> </span>/root/oraop<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>clone<span class="w"> </span>-q<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>https://github.com/oracle/oracle-database-operator.git<span class="w"> </span>/root/oraop
+<span class="nb">cd</span><span class="w"> </span>/root/oraop<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>log<span class="w"> </span>-1<span class="w"> </span>--format<span class="o">=</span><span class="s1">'commit %h, %cd'</span>
+ls<span class="w"> </span>oracle-database-operator-rbac.yaml<span class="w"> </span>oracle-database-operator-system.yaml<span class="w"> </span>scripts/generate-namespace-install.sh<span class="w"> </span>rbac<span class="w"> </span>docs/rac/rbac
+</code></pre></div>
+<p><strong>Check:</strong> a commit line, and the files and two <code>rbac</code> folders listed without errors.</p>
+<h3 id="72-cert-manager-op-controlplane">7.2 cert-manager (op-controlplane)</h3>
+<p><strong>Why:</strong> the operator checks every <code>RacDatabase</code> you apply through a webhook, and Kubernetes only talks to webhooks over TLS. cert-manager issues and renews that certificate. The version is the one the operator's README names.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
+kubectl<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deploy/cert-manager<span class="w"> </span>deploy/cert-manager-webhook<span class="w"> </span>deploy/cert-manager-cainjector<span class="w"> </span>--timeout<span class="o">=</span>300s
+kubectl<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>get<span class="w"> </span>pods
+</code></pre></div>
+<p><strong>Check:</strong> three <code>successfully rolled out</code> lines, and three cert-manager pods <code>Running</code> with <code>1/1</code>.</p>
+<h3 id="73-the-operator-watching-namespace-rac-op-controlplane">7.3 The operator, watching namespace rac (op-controlplane)</h3>
+<p><strong>Why namespace-scoped:</strong> the operator's recommended mode. It only acts in the namespaces it's told to watch, here its own and <code>rac</code>, where the Multus networks from 6.3 already are. The script writes the matching RBAC and sets <code>WATCH_NAMESPACE</code>, so the two can't disagree.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/root/oraop
+scripts/generate-namespace-install.sh<span class="w"> </span>oracle-database-operator-system,rac
+kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>dist/install/oracle-database-operator-rbac.yaml
+kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>dist/install/oracle-database-operator-system.yaml
+kubectl<span class="w"> </span>-n<span class="w"> </span>oracle-database-operator-system<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deploy/oracle-database-operator-controller-manager<span class="w"> </span>--timeout<span class="o">=</span>600s
+kubectl<span class="w"> </span>-n<span class="w"> </span>oracle-database-operator-system<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-o<span class="w"> </span>wide
+kubectl<span class="w"> </span>-n<span class="w"> </span>oracle-database-operator-system<span class="w"> </span>get<span class="w"> </span>deploy<span class="w"> </span>oracle-database-operator-controller-manager<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .spec.template.spec.containers[0].env[?(@.name=="WATCH_NAMESPACE")]}{.name}={.value}{"\n"}{end}'</span>
+</code></pre></div>
+<p><strong>Check:</strong></p>
+<ul>
+<li><code>successfully rolled out</code>, and the controller-manager pods <code>Running</code>;</li>
+<li><code>WATCH_NAMESPACE=oracle-database-operator-system,rac</code>.</li>
+</ul>
+<p>The first start pulls the operator image from <code>container-registry.oracle.com</code>, which can take a few minutes. If a pod stays in <code>ErrImagePull</code>, run <code>kubectl -n oracle-database-operator-system describe pod -l control-plane=controller-manager | tail -20</code> and paste the events.</p>
+<h3 id="74-the-rac-controllers-extra-permissions-op-controlplane">7.4 The RAC controller's extra permissions (op-controlplane)</h3>
+<p><strong>Why:</strong> the namespace-scoped install can only touch objects inside the watched namespaces. The RAC controller also needs a few cluster-wide ones:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>File</th>
+<th>Lets the operator</th>
+<th>Needed because</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rbac/node-rbac.yaml</code></td>
+<td>read nodes</td>
+<td>it picks workers by the <code>raccluster</code> label and builds NodePort connect strings</td>
+</tr>
+<tr>
+<td><code>rbac/persistent-volume-rbac.yaml</code></td>
+<td>read PersistentVolumes</td>
+<td>it checks the ASM PVs</td>
+</tr>
+<tr>
+<td><code>docs/rac/rbac/pv-rbac.yaml</code></td>
+<td>create and delete PersistentVolumes</td>
+<td>it creates the ASM PVs from the disk paths you list</td>
+</tr>
+<tr>
+<td><code>docs/rac/rbac/multus-rbac.yaml</code></td>
+<td>read NetworkAttachmentDefinitions</td>
+<td>it attaches <code>macvlan-conf1</code> / <code>macvlan-conf2</code> to the RAC pods</td>
+</tr>
+</tbody>
+</table></div>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/root/oraop
+kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>rbac/node-rbac.yaml<span class="w"> </span>-f<span class="w"> </span>rbac/persistent-volume-rbac.yaml<span class="w"> </span>-f<span class="w"> </span>docs/rac/rbac/pv-rbac.yaml<span class="w"> </span>-f<span class="w"> </span>docs/rac/rbac/multus-rbac.yaml
+<span class="nv">SA</span><span class="o">=</span>system:serviceaccount:oracle-database-operator-system:oracle-database-operator-controller-manager
+<span class="k">for</span><span class="w"> </span>c<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="s2">"list nodes"</span><span class="w"> </span><span class="s2">"create persistentvolumes"</span><span class="w"> </span><span class="s2">"delete persistentvolumes"</span><span class="w"> </span><span class="s2">"list network-attachment-definitions.k8s.cni.cncf.io -n rac"</span><span class="w"> </span><span class="s2">"create statefulsets.apps -n rac"</span><span class="w"> </span><span class="s2">"create racdatabases.database.oracle.com -n rac"</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nb">printf</span><span class="w"> </span><span class="s1">'%-62s %s\n'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$c</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>kubectl<span class="w"> </span>auth<span class="w"> </span>can-i<span class="w"> </span><span class="nv">$c</span><span class="w"> </span>--as<span class="o">=</span><span class="nv">$SA</span><span class="k">)</span><span class="s2">"</span>
+<span class="k">done</span>
+kubectl<span class="w"> </span>get<span class="w"> </span>crd<span class="w"> </span>racdatabases.database.oracle.com
+</code></pre></div>
+<p><strong>Check:</strong> every line ends in <code>yes</code>, and the <code>racdatabases.database.oracle.com</code> CRD is listed. A <code>no</code> names the permission that's missing; paste the output.</p>
+</section>
+<section class="sec"><h2 id="phase-8-the-rac-slim-image-and-the-software"><span class="eyebrow">Phase 8</span>The RAC slim image and the software</h2>
+<p><strong>Result of this phase:</strong> Oracle's RAC slim image, <code>localhost/oracle/database-rac:19.3.0-slim</code>, on both workers, and the two 19.32 gold-image zips in <code>/scratch/software/stage</code> on both workers.</p>
+<p><strong>Why on both workers:</strong> the operator may start either RAC pod on either labelled worker, and each worker's CRI-O can only start images it has locally. The image never leaves the worker it was built on, so nothing needs a registry.</p>
+<h3 id="81-build-the-slim-image-op-worker1-then-op-worker2">8.1 Build the slim image (op-worker1, then op-worker2)</h3>
+<p><strong>What the slim image is:</strong> Oracle Linux 9 with the OS packages, users and groups Oracle needs, plus Oracle's own setup scripts, but <strong>no</strong> Oracle software. The operator starts this image and drives the scripts in it; they install Grid and the database from the zips in 8.2 into <code>/u01</code>, on the worker's disk. That's why the manual lab's image, built from the OCNE doc's short Containerfile, can't be used here: it doesn't have those scripts.</p>
+<p><strong>Why each line:</strong></p>
+<ul>
+<li><strong><code>podman-docker</code>:</strong> Oracle's build script calls <code>docker</code>. This package makes <code>docker</code> run Podman, which writes into the same image store CRI-O reads (<code>/var/lib/containers</code>). <code>/etc/containers/nodocker</code> silences its "emulating docker" notice.</li>
+<li><strong>A sparse clone:</strong> only Oracle's RAC folder of the large <code>docker-images</code> repository is downloaded.</li>
+<li><strong><code>-v 19.3.0</code>:</strong> the 19c folder, which the README says to use for all 19c builds, RUs such as 19.32 included. Its <code>Containerfile</code> uses Oracle Linux 9.</li>
+<li><strong><code>-i</code>:</strong> skip the checksum of install zips; the slim image doesn't contain any.</li>
+<li><strong><code>SLIMMING=true</code>:</strong> build without the Oracle software.</li>
+<li><strong><code>TMPDIR</code> on <code>/scratch</code>:</strong> Podman's temporary files go to the 80 GB disk instead of the small root disk.</li>
+</ul>
+<p>The build downloads Oracle Linux packages and takes about 10–20 minutes. You can run it in op-worker1 and op-worker2 at the same time, in two windows.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-worker1, then op-worker2</span><span class="where-note">(10-20 minutes each)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2221 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2221 root@127.0.0.1" aria-label="Copy ssh -p 2221 root@127.0.0.1">Copy</button></span>; for op-worker2: <span class="conn-cmd"><code>ssh -p 2222 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2222 root@127.0.0.1" aria-label="Copy ssh -p 2222 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>dnf<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>-q<span class="w"> </span>git<span class="w"> </span>podman-docker<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>touch<span class="w"> </span>/etc/containers/nodocker
+mkdir<span class="w"> </span>-p<span class="w"> </span>/scratch/image/tmp<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>rm<span class="w"> </span>-rf<span class="w"> </span>/scratch/image/docker-images
+git<span class="w"> </span>clone<span class="w"> </span>-q<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>--filter<span class="o">=</span>blob:none<span class="w"> </span>--sparse<span class="w"> </span>https://github.com/oracle/docker-images.git<span class="w"> </span>/scratch/image/docker-images
+<span class="nb">cd</span><span class="w"> </span>/scratch/image/docker-images<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>sparse-checkout<span class="w"> </span><span class="nb">set</span><span class="w"> </span>OracleDatabase/RAC/OracleRealApplicationClusters<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>log<span class="w"> </span>-1<span class="w"> </span>--format<span class="o">=</span><span class="s1">'docker-images commit %h, %cd'</span>
+<span class="nb">cd</span><span class="w"> </span>OracleDatabase/RAC/OracleRealApplicationClusters/containerfiles
+<span class="nb">export</span><span class="w"> </span><span class="nv">TMPDIR</span><span class="o">=</span>/scratch/image/tmp
+./buildContainerImage.sh<span class="w"> </span>-v<span class="w"> </span><span class="m">19</span>.3.0<span class="w"> </span>-t<span class="w"> </span>localhost/oracle/database-rac:19.3.0-slim<span class="w"> </span>-i<span class="w"> </span>-o<span class="w"> </span><span class="s1">'--build-arg SLIMMING=true'</span><span class="w"> </span>&gt;<span class="w"> </span>/scratch/image/build.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"build exit </span><span class="nv">$?</span><span class="s2">"</span>
+tail<span class="w"> </span>-8<span class="w"> </span>/scratch/image/build.log
+podman<span class="w"> </span>images<span class="w"> </span>localhost/oracle/database-rac
+crictl<span class="w"> </span>images<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>database-rac
+</code></pre></div>
+<p><strong>Check, on each worker:</strong></p>
+<ul>
+<li><code>build exit 0</code>, and the log ends with <code>Oracle Database container Image for Real Application Clusters (RAC) version 19.3.0 is ready to be extended</code> and <code>--&gt; localhost/oracle/database-rac:19.3.0-slim</code>;</li>
+<li><code>podman images</code> and <code>crictl images</code> both list <code>localhost/oracle/database-rac</code> with tag <code>19.3.0-slim</code>. <code>crictl</code> seeing it proves CRI-O, and so Kubernetes, can start it.</li>
+</ul>
+<p>If the build fails, the full log is <code>/scratch/image/build.log</code>; paste its last 40 lines (<code>tail -40 /scratch/image/build.log</code>).</p>
+<h3 id="82-stage-the-gold-image-zips-from-the-pc">8.2 Stage the gold-image zips (from the PC)</h3>
+<p><strong>What:</strong> both 19.32 gold-image zips copied from <code>C:\Users\alpoo\Downloads\oracle-stage</code> to <code>/scratch/software/stage</code> on <strong>both</strong> workers, then checked against the PC's own checksums.</p>
+<p><strong>Why each part:</strong></p>
+<ul>
+<li><strong>Both workers:</strong> the operator installs from the stage directory of the worker each RAC pod runs on, and either pod may land on either worker. It mounts the directory as <code>hostSwStageLocation</code>.</li>
+<li><strong>Zipped, not unpacked:</strong> the operator unzips them itself; the <code>RacDatabase</code> names them in <code>gridSwZipFile</code> and <code>dbSwZipFile</code>. Oracle's prerequisites accept a 19.28 or later gold image, and these are 19.32.</li>
+<li><strong>Mode 755:</strong> the permissions Oracle's prerequisites ask for on the zips.</li>
+<li><strong><code>restorecon</code>:</strong> gives the files the <code>container_file_t</code> label set up in 4f, so the pods may read them under SELinux.</li>
+<li><strong>Checksums:</strong> 9.6 GB through a NAT port forward is easy to cut short. <code>sha256sum -c</code> on each worker compares against the checksums taken on the PC; a truncated or damaged copy fails here instead of an hour into the Grid install.</li>
+</ul>
+<p>The copy takes a few minutes per worker. The checksums take about a minute on each side.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">Git Bash</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>~/Downloads/oracle-stage
+sha256sum<span class="w"> </span>oracle-gridhome-19.32.zip<span class="w"> </span>oracle-dbhome-19.32.zip<span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>/tmp/zips.sha256
+<span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">2221</span><span class="w"> </span><span class="m">2222</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- copying to port </span><span class="nv">$p</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>scp<span class="w"> </span>-P<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>oracle-gridhome-19.32.zip<span class="w"> </span>oracle-dbhome-19.32.zip<span class="w"> </span>root@127.0.0.1:/scratch/software/stage/<span class="p">;</span><span class="w"> </span><span class="k">done</span>
+<span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">2221</span><span class="w"> </span><span class="m">2222</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- checking port </span><span class="nv">$p</span><span class="s2">"</span>
+<span class="w">  </span>ssh<span class="w"> </span>-p<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>root@127.0.0.1<span class="w"> </span><span class="s2">"hostname; cd /scratch/software/stage &amp;&amp; chmod 755 oracle-*.zip &amp;&amp; restorecon -F oracle-*.zip &amp;&amp; ls -lhZ oracle-*.zip &amp;&amp; sha256sum -c"</span><span class="w"> </span>&lt;<span class="w"> </span>/tmp/zips.sha256
+<span class="k">done</span>
+</code></pre></div>
+<p><strong>Check:</strong> for <code>op-worker1</code> and <code>op-worker2</code>, both zips listed with <code>-rwxr-xr-x</code>, about 4.8 G and <code>container_file_t</code>, and two lines ending in <strong><code>OK</code></strong>. A <code>FAILED</code> line means that copy is damaged: run the <code>scp</code> line again for that port, then the check.</p>
+</section>
+<section class="sec"><h2 id="next-phases-912">Next: Phases 9–12</h2>
+<p>After Phase 6 the operator lab is at the same point as the manual lab before its Phase 7, with three deliberate differences the operator asks for: the node directories <code>racnode1</code> / <code>racnode2</code> on both workers (4f), the worker label <code>raccluster=raccluster01</code> (5.4), and the Multus networks in namespace <code>rac</code> (6.3). The rest of the worker set-up (kernel settings, SELinux module, <code>allowedUnsafeSysctls</code>, hugepages, clock source) was already in the golden image and the kubeadm configuration.</p>
+<p>The phases below follow Oracle's <a href="https://github.com/oracle/oracle-database-operator">Oracle Database Operator for Kubernetes</a> (release v2.2.0, RAC controller <code>RacDatabase</code>, API <code>database.oracle.com/v4</code>). Phases 7 and 8 are above; the rest will be written out the same way.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>What</th>
+<th>From the operator docs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>9. Secrets</td>
+<td><code>ssh-key-secret</code> (keys <code>ssh-privkey</code>, <code>ssh-pubkey</code>); <code>db-user-pass</code> (password encrypted with OpenSSL, typed at a prompt, never written to the guide)</td>
+<td><code>create_kubernetes_secret_for_*.md</code></td>
+</tr>
+<tr>
+<td>10. ASM disks</td>
+<td>no PVs by hand: the <code>RacDatabase</code> lists the shared disks by their <code>/dev/disk/by-id/...</code> names and the operator creates the PVs</td>
+<td><code>asmDiskGroupDetails</code> in <code>racdb_prov.yaml</code></td>
+</tr>
+<tr>
+<td>11. The <code>RacDatabase</code></td>
+<td>one YAML: 2 nodes, <code>racnode</code> prefix, <code>/scratch/rac/cluster01</code>, the two NADs, the worker label, CPU/memory/hugepages sized for 22 GB workers, <code>DATA</code> disk group, the gold-image zips, then <code>kubectl apply</code> and follow <code>/tmp/orod/oracle_db_setup.log</code> until "ORACLE RAC DATABASE IS READY TO USE"</td>
+<td><code>racdb_prov.yaml</code>, <code>racdb_prov_memory_cpu.yaml</code>, <code>racdb_prov_hugepages.yaml</code></td>
+</tr>
+<tr>
+<td>12. Access from Windows</td>
+<td>the operator's NodePort option, port forwards, and the same SCAN test as the manual lab</td>
+<td><code>provisioning_oracle_rac_db_with_node_port.md</code>, <code>database_connection.md</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Open points:</strong></p>
+<ul>
+<li><strong>Which image (settled).</strong> The manual lab's image can't be reused: it was built from the OCNE doc's short Containerfile, and the operator drives the setup through the scripts in Oracle's own RAC image (it follows <code>/tmp/orod/oracle_db_setup.log</code>). Oracle doesn't publish the slim image on its registry, so Phase 8 builds it on each worker with <code>buildContainerImage.sh -v 19.3.0 -i -o '--build-arg SLIMMING=true'</code> (Oracle Linux 9 base).</li>
+<li><strong>Sizing.</strong> Oracle's prerequisites name 60 GB of RAM per worker and samples with 30 GiB pods. The lab's workers have 22 GB, so the <code>RacDatabase</code> sets resources explicitly, as the manual lab did (12 GiB, 3 CPU, 4 GiB hugepages).</li>
+<li><strong>Platform.</strong> Oracle lists OKE, OpenShift, OLCNE 1.9+ and Minikube as tested. A plain kubeadm cluster with CRI-O isn't on that list, so expect lab-specific workarounds, as in the manual lab.</li>
+</ul></section>
+  <footer class="foot">Built from the lab's build log and scripts (rac-k8s-poc). Values are from the author's lab; change them to match yours.</footer>
+  </main>
+</div>
+</div>
+<script>(function () {
+  // Copy buttons: copy the commands without the "where" label
+  document.querySelectorAll('.cmd').forEach(function (box) {
+    var btn = box.querySelector('.copy'), code = box.querySelector('pre code');
+    if (!btn || !code) return;
+    btn.addEventListener('click', function () {
+      var text = code.innerText.replace(/\n$/, '');
+      var done = function () { btn.textContent = 'Copied'; btn.classList.add('done'); setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1600); };
+      var fallback = function () {
+        var r = document.createRange(); r.selectNodeContents(code);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        btn.textContent = 'Selected: press Ctrl+C';
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+        else fallback();
+      } catch (e) { fallback(); }
+    });
+  });
+  // Highlight the current section in the contents
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  var map = {};
+  links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+  if ('IntersectionObserver' in window) {
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          links.forEach(function (a) { a.classList.remove('active'); });
+          var a = map[e.target.id]; if (a) a.classList.add('active');
+        }
+      });
+    }, { rootMargin: '0px 0px -75% 0px' });
+    document.querySelectorAll('.sec h2[id]').forEach(function (h) { obs.observe(h); });
+  }
+  // Collapse the contents by default on narrow screens
+  if (window.matchMedia && window.matchMedia('(max-width: 960px)').matches) {
+    var d = document.querySelector('.toc details'); if (d) d.removeAttribute('open');
+  }
+})();
+(function () {
+  document.querySelectorAll('.copy-mini').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-copy');
+      var ok = function () { b.textContent = 'Copied'; b.classList.add('done'); setTimeout(function () { b.textContent = 'Copy'; b.classList.remove('done'); }, 1600); };
+      try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, function () { b.textContent = 'Select and copy'; }); else b.textContent = 'Select and copy'; } catch (e) { b.textContent = 'Select and copy'; }
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
