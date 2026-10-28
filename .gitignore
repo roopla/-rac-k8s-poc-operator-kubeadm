@@ -1,12 +1,19 @@
-# keys, kubeconfigs and secrets
-k8s_azure_lab
+# keys and credentials
 *.pem
-id_rsa*
 *.key
+id_rsa*
+id_ed25519*
+k8s_azure_lab
+*.enc
+secrets/
+# cluster access
 admin.conf
 config-op
-# Oracle's copyrighted doc and big binaries
-oracle-real-application-clusters-*.pdf
+kubeconfig*
+# Oracle software and documentation (licensed / copyrighted)
 *.zip
+oracle-real-application-clusters-*.pdf
+# VM images
 *.iso
 *.vdi
+*.vmdk

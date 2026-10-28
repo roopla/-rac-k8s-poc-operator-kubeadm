@@ -167,7 +167,7 @@ tr:last-child td { border-bottom: 0; }
 <header class="hero">
   <div class="hero-in">
     <p class="kicker">Operator lab · Oracle RAC 19c on kubeadm</p>
-    <h1>The operator lab: Phases 0–8</h1>
+    <h1>The operator lab: Phases 0–11</h1>
     <p class="lede">A second, separate lab next to the manual one, built the same way up to Multus, then handed to Oracle&#39;s database operator for the RAC database. Own VM names, IPs, ports and disks; the same golden image.</p>
     <ul class="stack"><li>op-controlplane · op-worker1 · op-worker2</li><li>10.0.1.20–22</li><li>SSH 2220–2222</li><li>D:&#92;VMs&#92;rac-op</li><li>Oracle Database Operator v2.2.0</li></ul>
     <p class="meta">26 Oct 2026 · Companion to the manual lab guide; Phases 7 onward follow <a href="https://github.com/oracle/oracle-database-operator">oracle/oracle-database-operator</a>. <a class="pdf" href="rac-k8s-operator-lab-guide.pdf">PDF version</a></p>
@@ -188,7 +188,10 @@ tr:last-child td { border-bottom: 0; }
 <li><a href="#phase-6-multus-and-the-rac-private-networks"><span class="toc-num">6</span>Multus and the RAC private networks</a></li>
 <li><a href="#phase-7-install-oracles-database-operator"><span class="toc-num">7</span>Install Oracle&#x27;s database operator</a></li>
 <li><a href="#phase-8-the-rac-slim-image-and-the-software"><span class="toc-num">8</span>The RAC slim image and the software</a></li>
-<li><a href="#next-phases-912"><span class="toc-num"></span>Next: Phases 9–12</a></li></ol></details>
+<li><a href="#phase-9-the-secrets"><span class="toc-num">9</span>The secrets</a></li>
+<li><a href="#phase-10-the-asm-disks-and-the-room-on-the-workers"><span class="toc-num">10</span>The ASM disks and the room on the workers</a></li>
+<li><a href="#phase-11-the-racdatabase"><span class="toc-num">11</span>The RacDatabase</a></li>
+<li><a href="#next-apply-it-then-phase-12"><span class="toc-num"></span>Next: apply it, then Phase 12</a></li></ol></details>
   </nav>
   <main class="content"><section class="sec"><h2 id="how-to-use-this-guide">How to use this guide</h2>
 <p>This guide builds a <strong>second lab, the operator lab</strong>, next to the manual lab you already have. It follows the manual guide's Phases 0 and 3–6 step by step, with its own names, addresses and ports, so the two labs never overwrite each other. The RAC database itself will come from Oracle's database operator in the later phases, instead of the hand-run installs of the manual lab's Phases 8–14.</p>
@@ -224,8 +227,8 @@ tr:last-child td { border-bottom: 0; }
 </tr>
 <tr>
 <td>Shared ASM disks</td>
-<td><code>rac-poc\shared\asm1.vdi</code>, <code>asm2.vdi</code></td>
-<td><strong><code>rac-op\shared\asm1.vdi</code>, <code>asm2.vdi</code></strong> (new, empty)</td>
+<td><code>rac-poc\shared\asm1.vdi</code>, <code>asm2.vdi</code>: one disk group <code>DATA</code></td>
+<td><strong><code>rac-op\shared\vote1.vdi</code> (10 GB), <code>asm1.vdi</code>, <code>asm2.vdi</code></strong>: disk groups <code>VOTEDG</code>, <code>DATA</code>, <code>FRA</code></td>
 </tr>
 <tr>
 <td>Private networks (VirtualBox internal)</td>
@@ -286,7 +289,7 @@ tr:last-child td { border-bottom: 0; }
 </code></pre></div>
 <p><strong>Check:</strong> <code>list vms</code> still shows <code>ol98-golden</code>, <code>controlplane</code>, <code>worker1</code> and <code>worker2</code>, and no <code>op-*</code> VM.</p>
 <h3 id="01-check-the-host">0.1 Check the host</h3>
-<p><strong>Why:</strong> the operator lab needs the same memory and CPU as the manual lab, about 48 GB, so only one lab can run at a time. On disk it needs its own room: two fixed 50 GB ASM disks are written in full straight away, and the workers' disks grow as they fill.</p>
+<p><strong>Why:</strong> the operator lab needs the same memory and CPU as the manual lab, about 48 GB, so only one lab can run at a time. On disk it needs its own room: three fixed ASM disks (110 GB together) are written in full straight away, and the workers' disks grow as they fill.</p>
 <div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span>
 <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">list</span> <span class="n">runningvms</span>
 <span class="nb">Get-CimInstance</span> <span class="n">Win32_Processor</span> <span class="p">|</span> <span class="nb">Select-Object</span> <span class="n">NumberOfCores</span><span class="p">,</span> <span class="n">NumberOfLogicalProcessors</span>
@@ -317,7 +320,7 @@ tr:last-child td { border-bottom: 0; }
 <p><strong>Check:</strong> <code>natnetwork list</code> shows <code>k8s-public</code> with the manual lab's rules (<code>ssh-golden</code>, <code>ssh-cp</code>, <code>ssh-w1</code>, <code>ssh-w2</code>, and any NodePort rules) <strong>plus</strong> <code>ssh-opcp</code>, <code>ssh-opw1</code> and <code>ssh-opw2</code>. If a line says the rule already exists, it was added before; that's fine.</p>
 </section>
 <section class="sec"><h2 id="phase-3-clone-the-three-operator-lab-nodes"><span class="eyebrow">Phase 3</span>Clone the three operator-lab nodes</h2>
-<p><strong>Result of this phase:</strong> three VMs (<code>op-controlplane</code>, <code>op-worker1</code>, <code>op-worker2</code>) cloned from the same golden image as the manual lab, the workers with two data disks each and their private NICs on <code>op-priv1</code> / <code>op-priv2</code>, and two new 50 GB disks that <strong>both</strong> workers share for ASM.</p>
+<p><strong>Result of this phase:</strong> three VMs (<code>op-controlplane</code>, <code>op-worker1</code>, <code>op-worker2</code>) cloned from the same golden image as the manual lab, the workers with two data disks each and their private NICs on <code>op-priv1</code> / <code>op-priv2</code>, and three new disks that <strong>both</strong> workers share for ASM: 10 GB for <code>VOTEDG</code>, 50 GB each for <code>DATA</code> and <code>FRA</code>.</p>
 <h3 id="31-check-that-the-golden-vm-is-still-sealed">3.1 Check that the golden VM is still sealed</h3>
 <p><strong>Why:</strong> clones must come from the <strong>sealed</strong> golden image: no machine ID, no SSH host keys. You sealed it before cloning the manual lab. If the golden VM has been started since then, it has made itself a new machine ID and host keys, and every clone would share them. Kubernetes refuses to join nodes with the same machine ID.</p>
 <p><strong>How to tell without starting it:</strong> VirtualBox records when a VM last changed state. If the golden VM's last change (its power-off after sealing) is <strong>older</strong> than the manual lab's clones, nobody has started it since.</p>
@@ -372,19 +375,56 @@ poweroff
 <li><strong>each worker:</strong> <code>cpus=4</code>, <code>memory=22528</code>, <code>nat-network1="k8s-public"</code>, <code>intnet2="op-priv1"</code>, <code>intnet3="op-priv2"</code>, and two <code>NIC 2:</code> / <code>NIC 3:</code> lines that include <strong><code>Promisc Policy: allow-all</code></strong>, each with its own MAC address. (The machine-readable output has no promiscuous-mode line on this VirtualBox version, so the check reads it from the normal output.)</li>
 </ul>
 <h3 id="33-the-shared-asm-disks">3.3 The shared ASM disks</h3>
-<p><strong>What and why:</strong> the same as the manual lab: two fixed-size 50 GB disks, attached to <strong>both</strong> workers as <code>shareable</code>, because RAC needs the same block devices on both nodes. These are <strong>new, empty</strong> disks in <code>D:\VMs\rac-op\shared</code>; the manual lab's disks stay with the manual lab. Don't snapshot the workers: VirtualBox can't snapshot a VM with shareable disks.</p>
+<p><strong>What:</strong> three disks attached to <strong>both</strong> workers at once, one per ASM disk group:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Disk</th>
+<th>Size</th>
+<th>SATA port</th>
+<th>Disk group</th>
+<th>Holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vote1.vdi</code></td>
+<td>10 GB</td>
+<td>5</td>
+<td><code>VOTEDG</code></td>
+<td>the cluster's own files: voting file, OCR, the ASM password file and spfile</td>
+</tr>
+<tr>
+<td><code>asm1.vdi</code></td>
+<td>50 GB</td>
+<td>3</td>
+<td><code>DATA</code></td>
+<td>the database's data files, control files and redo logs</td>
+</tr>
+<tr>
+<td><code>asm2.vdi</code></td>
+<td>50 GB</td>
+<td>4</td>
+<td><code>FRA</code></td>
+<td>the fast recovery area: archived logs, flashback logs, backups</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Why three disk groups instead of one:</strong> keeping the cluster's files apart from the database makes each easier to size, move and repair; a full <code>FRA</code> can't stop the cluster, and the clusterware disk group stays small. The manual lab put everything into one <code>DATA</code> disk group.</p>
+<p><strong>Why port 5:</strong> the SATA controller has six ports (0–5). Port 5 carries the golden VM's empty DVD drive, which the clones inherited and nothing uses; the block removes it and puts <code>vote1</code> there.</p>
+<p><strong>Why fixed size and <code>shareable</code>:</strong> RAC is a shared-disk database, so both nodes need the same block devices; VirtualBox only allows the shareable type on fixed-size disks, and without it refuses to attach the second VM. These are <strong>new, empty</strong> disks in <code>D:\VMs\rac-op\shared</code>; the manual lab's disks stay with the manual lab. Don't snapshot the workers: VirtualBox can't snapshot a VM with shareable disks. Creating the fixed disks takes a few minutes.</p>
 <div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span><span class="p">;</span> <span class="nv">$Base</span> <span class="p">=</span> <span class="s2">"D:\VMs\rac-op"</span>
 <span class="nb">New-Item</span> <span class="n">-ItemType</span> <span class="n">Directory</span> <span class="n">-Force</span> <span class="n">-Path</span> <span class="s2">"$Base\shared"</span> <span class="p">|</span> <span class="nb">Out-Null</span>
-<span class="nv">$port</span> <span class="p">=</span> <span class="n">3</span>
-<span class="k">foreach</span> <span class="p">(</span><span class="nv">$d</span> <span class="k">in</span> <span class="s2">"asm1"</span><span class="p">,</span><span class="s2">"asm2"</span><span class="p">)</span> <span class="p">{</span>
-  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">createmedium</span> <span class="n">disk</span> <span class="p">-</span><span class="n">-filename</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">-</span><span class="n">-size</span> <span class="n">51200</span> <span class="p">-</span><span class="n">-variant</span> <span class="n">Fixed</span>
-  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">modifymedium</span> <span class="n">disk</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">-</span><span class="n">-type</span> <span class="n">shareable</span>
-  <span class="k">foreach</span> <span class="p">(</span><span class="nv">$w</span> <span class="k">in</span> <span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">storageattach</span> <span class="nv">$w</span> <span class="p">-</span><span class="n">-storagectl</span> <span class="n">SATA</span> <span class="p">-</span><span class="n">-port</span> <span class="nv">$port</span> <span class="p">-</span><span class="n">-device</span> <span class="n">0</span> <span class="p">-</span><span class="n">-type</span> <span class="n">hdd</span> <span class="p">-</span><span class="n">-medium</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">-</span><span class="n">-mtype</span> <span class="n">shareable</span> <span class="p">}</span>
-  <span class="nv">$port</span><span class="p">++</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$w</span> <span class="k">in</span> <span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">storageattach</span> <span class="nv">$w</span> <span class="p">-</span><span class="n">-storagectl</span> <span class="n">SATA</span> <span class="p">-</span><span class="n">-port</span> <span class="n">5</span> <span class="p">-</span><span class="n">-device</span> <span class="n">0</span> <span class="p">-</span><span class="n">-medium</span> <span class="n">none</span> <span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$disk</span> <span class="k">in</span> <span class="p">@(@{</span><span class="n">n</span><span class="p">=</span><span class="s2">"asm1"</span><span class="p">;</span><span class="n">gb</span><span class="p">=</span><span class="n">50</span><span class="p">;</span><span class="n">port</span><span class="p">=</span><span class="n">3</span><span class="p">},</span> <span class="p">@{</span><span class="n">n</span><span class="p">=</span><span class="s2">"asm2"</span><span class="p">;</span><span class="n">gb</span><span class="p">=</span><span class="n">50</span><span class="p">;</span><span class="n">port</span><span class="p">=</span><span class="n">4</span><span class="p">},</span> <span class="p">@{</span><span class="n">n</span><span class="p">=</span><span class="s2">"vote1"</span><span class="p">;</span><span class="n">gb</span><span class="p">=</span><span class="n">10</span><span class="p">;</span><span class="n">port</span><span class="p">=</span><span class="n">5</span><span class="p">}))</span> <span class="p">{</span>
+  <span class="nv">$f</span> <span class="p">=</span> <span class="s2">"$Base\shared\</span><span class="p">$(</span><span class="nv">$disk</span><span class="p">.</span><span class="n">n</span><span class="p">)</span><span class="s2">.vdi"</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">createmedium</span> <span class="n">disk</span> <span class="p">-</span><span class="n">-filename</span> <span class="nv">$f</span> <span class="p">-</span><span class="n">-size</span> <span class="p">(</span><span class="nv">$disk</span><span class="p">.</span><span class="n">gb</span><span class="p">*</span><span class="n">1024</span><span class="p">)</span> <span class="p">-</span><span class="n">-variant</span> <span class="n">Fixed</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">modifymedium</span> <span class="n">disk</span> <span class="nv">$f</span> <span class="p">-</span><span class="n">-type</span> <span class="n">shareable</span>
+  <span class="k">foreach</span> <span class="p">(</span><span class="nv">$w</span> <span class="k">in</span> <span class="s2">"op-worker1"</span><span class="p">,</span><span class="s2">"op-worker2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">storageattach</span> <span class="nv">$w</span> <span class="p">-</span><span class="n">-storagectl</span> <span class="n">SATA</span> <span class="p">-</span><span class="n">-port</span> <span class="nv">$disk</span><span class="p">.</span><span class="n">port</span> <span class="p">-</span><span class="n">-device</span> <span class="n">0</span> <span class="p">-</span><span class="n">-type</span> <span class="n">hdd</span> <span class="p">-</span><span class="n">-medium</span> <span class="nv">$f</span> <span class="p">-</span><span class="n">-mtype</span> <span class="n">shareable</span> <span class="p">}</span>
 <span class="p">}</span>
-<span class="k">foreach</span> <span class="p">(</span><span class="nv">$d</span> <span class="k">in</span> <span class="s2">"asm1"</span><span class="p">,</span><span class="s2">"asm2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">showmediuminfo</span> <span class="n">disk</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^(UUID|Location|Type|In use by VMs):|op-worker'</span> <span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$d</span> <span class="k">in</span> <span class="s2">"vote1"</span><span class="p">,</span><span class="s2">"asm1"</span><span class="p">,</span><span class="s2">"asm2"</span><span class="p">)</span> <span class="p">{</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">showmediuminfo</span> <span class="n">disk</span> <span class="s2">"$Base\shared\$d.vdi"</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^(UUID|Location|Type|Capacity|In use by VMs):|op-worker'</span> <span class="p">}</span>
 </code></pre></div>
-<p><strong>Check:</strong> for <strong>each</strong> disk, <code>Type: shareable</code>, a <code>Location</code> under <code>D:\VMs\rac-op\shared</code>, and both <code>op-worker1</code> and <code>op-worker2</code> under "In use by VMs". Note the first 8 characters of each UUID: inside the workers the disk appears as <code>/dev/disk/by-id/ata-VBOX_HARDDISK_VB&lt;those 8&gt;-...</code>.</p>
+<p><strong>Check:</strong> for <strong>each</strong> of the three disks, <code>Type: shareable</code>, a <code>Location</code> under <code>D:\VMs\rac-op\shared</code>, the right <code>Capacity</code> (10240 MBytes for <code>vote1</code>, 51200 for the others), and both <code>op-worker1</code> and <code>op-worker2</code> under "In use by VMs".</p>
 </section>
 <section class="sec"><h2 id="phase-4-personalize-each-node"><span class="eyebrow">Phase 4</span>Personalize each node</h2>
 <p><strong>Result of this phase:</strong> each node has its own name and IP address. The workers also have their private NICs ready for Multus, <code>/scratch</code> and <code>/var/lib/containers</code> on their own disks, the operator's directories, and 4 GB of hugepages.</p>
@@ -991,16 +1031,455 @@ crictl<span class="w"> </span>images<span class="w"> </span><span class="p">|</s
 <p>The copy takes a few minutes per worker. The checksums take about a minute on each side.</p>
 <div class="cmd"><div class="cmd-head"><span class="where win">Git Bash</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>~/Downloads/oracle-stage
 sha256sum<span class="w"> </span>oracle-gridhome-19.32.zip<span class="w"> </span>oracle-dbhome-19.32.zip<span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>/tmp/zips.sha256
-<span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">2221</span><span class="w"> </span><span class="m">2222</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- copying to port </span><span class="nv">$p</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>scp<span class="w"> </span>-P<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>oracle-gridhome-19.32.zip<span class="w"> </span>oracle-dbhome-19.32.zip<span class="w"> </span>root@127.0.0.1:/scratch/software/stage/<span class="p">;</span><span class="w"> </span><span class="k">done</span>
+<span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">2221</span><span class="w"> </span><span class="m">2222</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="k">for</span><span class="w"> </span>f<span class="w"> </span><span class="k">in</span><span class="w"> </span>oracle-gridhome-19.32.zip<span class="w"> </span>oracle-dbhome-19.32.zip<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span>try<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="m">3</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- port </span><span class="nv">$p</span><span class="s2">: </span><span class="nv">$f</span><span class="s2"> (try </span><span class="nv">$try</span><span class="s2">)"</span>
+<span class="w">    </span>scp<span class="w"> </span>-P<span class="w"> </span><span class="nv">$p</span><span class="w"> </span><span class="nv">$f</span><span class="w"> </span>root@127.0.0.1:/scratch/software/stage/<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">" \*</span><span class="nv">$f</span>$<span class="s2">"</span><span class="w"> </span>/tmp/zips.sha256<span class="w"> </span><span class="p">|</span><span class="w"> </span>ssh<span class="w"> </span>-p<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>root@127.0.0.1<span class="w"> </span><span class="s2">"cd /scratch/software/stage &amp;&amp; sha256sum -c"</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="k">break</span>
+<span class="w">  </span><span class="k">done</span>
+<span class="k">done</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
 <span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">2221</span><span class="w"> </span><span class="m">2222</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- checking port </span><span class="nv">$p</span><span class="s2">"</span>
 <span class="w">  </span>ssh<span class="w"> </span>-p<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>root@127.0.0.1<span class="w"> </span><span class="s2">"hostname; cd /scratch/software/stage &amp;&amp; chmod 755 oracle-*.zip &amp;&amp; restorecon -F oracle-*.zip &amp;&amp; ls -lhZ oracle-*.zip &amp;&amp; sha256sum -c"</span><span class="w"> </span>&lt;<span class="w"> </span>/tmp/zips.sha256
 <span class="k">done</span>
 </code></pre></div>
-<p><strong>Check:</strong> for <code>op-worker1</code> and <code>op-worker2</code>, both zips listed with <code>-rwxr-xr-x</code>, about 4.8 G and <code>container_file_t</code>, and two lines ending in <strong><code>OK</code></strong>. A <code>FAILED</code> line means that copy is damaged: run the <code>scp</code> line again for that port, then the check.</p>
+<p><strong>Check:</strong> for <code>op-worker1</code> and <code>op-worker2</code>, both zips listed with <code>-rwxr-xr-x</code>, about 4.8 G and <code>container_file_t</code>, and two lines ending in <strong><code>OK</code></strong>. Each file is checked right after its copy and copied again, up to three times, if the checksum doesn't match: a copy through the NAT port forward can drop just before the end (<code>lost connection</code> at 99%). A <code>FAILED</code> line in the final check means all three tries failed for that file; paste the output.</p>
 </section>
-<section class="sec"><h2 id="next-phases-912">Next: Phases 9–12</h2>
+<section class="sec"><h2 id="phase-9-the-secrets"><span class="eyebrow">Phase 9</span>The secrets</h2>
+<p><strong>Result of this phase:</strong> two Kubernetes Secrets in namespace <code>rac</code>: <code>ssh-key-secret</code> with an SSH key pair the RAC pods use to reach each other, and <code>db-user-pass</code> with the database password, encrypted.</p>
+<p><strong>Why the operator wants them:</strong> Grid's and the database's installers run on one RAC node and work on the other over SSH, so both pods need the same key pair from the start; the manual lab created the same <code>ssh-key-secret</code> in its 10.2. The password is for <code>SYS</code>, <code>SYSTEM</code>, the PDB admin and ASM. The operator only takes it encrypted: the Secret holds the encrypted password file and the private key that decrypts it, and the setup scripts inside the pod decrypt it there.</p>
+<h3 id="91-the-ssh-key-pair-op-controlplane">9.1 The SSH key pair (op-controlplane)</h3>
+<p>The key names inside the Secret, <code>ssh-privkey</code> and <code>ssh-pubkey</code>, are the ones the <code>RacDatabase</code> will refer to.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>install<span class="w"> </span>-d<span class="w"> </span>-m<span class="w"> </span><span class="m">700</span><span class="w"> </span>/root/rac-op/secrets
+rm<span class="w"> </span>-f<span class="w"> </span>/root/rac-op/secrets/id_rsa<span class="w"> </span>/root/rac-op/secrets/id_rsa.pub
+ssh-keygen<span class="w"> </span>-q<span class="w"> </span>-t<span class="w"> </span>rsa<span class="w"> </span>-b<span class="w"> </span><span class="m">4096</span><span class="w"> </span>-N<span class="w"> </span><span class="s2">""</span><span class="w"> </span>-C<span class="w"> </span><span class="s2">"rac-op RAC nodes"</span><span class="w"> </span>-f<span class="w"> </span>/root/rac-op/secrets/id_rsa
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>ssh-key-secret<span class="w"> </span>--ignore-not-found
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>ssh-key-secret<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--from-file<span class="o">=</span>ssh-privkey<span class="o">=</span>/root/rac-op/secrets/id_rsa<span class="w"> </span>--from-file<span class="o">=</span>ssh-pubkey<span class="o">=</span>/root/rac-op/secrets/id_rsa.pub
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>ssh-key-secret<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.data}'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-o<span class="w"> </span><span class="s1">'"ssh-p[a-z]*key"'</span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>"ssh-privkey"</code> and <code>"ssh-pubkey"</code>.</p>
+<h3 id="92-the-database-password-encrypted-op-controlplane">9.2 The database password, encrypted (op-controlplane)</h3>
+<p><strong>What happens to the password:</strong> you type it twice at a hidden prompt. It lives only in a shell variable, is piped straight into OpenSSL, and is encrypted with a new RSA key; the variable is then cleared. It's never written to a file, the screen or this guide. The <code>-pkeyopt</code> settings are the operator's default (<code>rsa_padding_mode:oaep;rsa_oaep_md:sha256;rsa_mgf1_md:sha256</code>), which the <code>RacDatabase</code> names again in Phase 11.</p>
+<p><strong>Password rules:</strong> 8–30 characters with at least one upper-case letter, one lower-case letter and one digit, and only letters, digits, <code>_</code>, <code>#</code> and <code>-</code>. Those rules satisfy Oracle's password checks; leaving out quotes, spaces, <code>@</code> and <code>$</code> keeps them out of trouble in the operator's shell scripts.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note">(you type the password twice)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/root/rac-op/secrets
+<span class="k">while</span><span class="w"> </span>:<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nb">read</span><span class="w"> </span>-rsp<span class="w"> </span><span class="s2">"Database password: "</span><span class="w"> </span>PW<span class="p">;</span><span class="w"> </span>echo<span class="p">;</span><span class="w"> </span><span class="nb">read</span><span class="w"> </span>-rsp<span class="w"> </span><span class="s2">"Same again: "</span><span class="w"> </span>PW2<span class="p">;</span><span class="w"> </span><span class="nb">echo</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PW</span><span class="s2">"</span><span class="w"> </span>!<span class="o">=</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PW2</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"They differ; try again."</span><span class="p">;</span><span class="w"> </span><span class="k">continue</span><span class="p">;</span><span class="w"> </span><span class="k">fi</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="o">[[</span><span class="w"> </span><span class="si">${#</span><span class="nv">PW</span><span class="si">}</span><span class="w"> </span>-ge<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="si">${#</span><span class="nv">PW</span><span class="si">}</span><span class="w"> </span>-le<span class="w"> </span><span class="m">30</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PW</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span>~<span class="w"> </span><span class="o">[</span>A-Z<span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PW</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span>~<span class="w"> </span><span class="o">[</span>a-z<span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PW</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span>~<span class="w"> </span><span class="o">[</span><span class="m">0</span>-9<span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PW</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span>~<span class="w"> </span>^<span class="o">[</span>A-Za-z0-9_#-<span class="o">]</span>+$<span class="w"> </span><span class="o">]]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="k">break</span><span class="p">;</span><span class="w"> </span><span class="k">fi</span>
+<span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"8-30 characters, upper and lower case and a digit, only letters, digits, _ # -; try again."</span>
+<span class="k">done</span>
+rm<span class="w"> </span>-f<span class="w"> </span>key.pem<span class="w"> </span>key.pub<span class="w"> </span>pwdfile.enc
+openssl<span class="w"> </span>genrsa<span class="w"> </span>-out<span class="w"> </span>key.pem<span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>openssl<span class="w"> </span>rsa<span class="w"> </span>-in<span class="w"> </span>key.pem<span class="w"> </span>-pubout<span class="w"> </span>-out<span class="w"> </span>key.pub<span class="w"> </span><span class="m">2</span>&gt;/dev/null
+<span class="nb">printf</span><span class="w"> </span><span class="s1">'%s\n'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PW</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>openssl<span class="w"> </span>pkeyutl<span class="w"> </span>-encrypt<span class="w"> </span>-pubin<span class="w"> </span>-inkey<span class="w"> </span>key.pub<span class="w"> </span>-out<span class="w"> </span>pwdfile.enc<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-pkeyopt<span class="w"> </span>rsa_padding_mode:oaep<span class="w"> </span>-pkeyopt<span class="w"> </span>rsa_oaep_md:sha256<span class="w"> </span>-pkeyopt<span class="w"> </span>rsa_mgf1_md:sha256
+<span class="nv">LEN</span><span class="o">=</span><span class="k">$((</span><span class="w"> </span><span class="si">${#</span><span class="nv">PW</span><span class="si">}</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="k">))</span><span class="p">;</span><span class="w"> </span><span class="nb">unset</span><span class="w"> </span>PW<span class="w"> </span>PW2
+<span class="nv">GOT</span><span class="o">=</span><span class="k">$(</span>openssl<span class="w"> </span>pkeyutl<span class="w"> </span>-decrypt<span class="w"> </span>-inkey<span class="w"> </span>key.pem<span class="w"> </span>-in<span class="w"> </span>pwdfile.enc<span class="w"> </span>-pkeyopt<span class="w"> </span>rsa_padding_mode:oaep<span class="w"> </span>-pkeyopt<span class="w"> </span>rsa_oaep_md:sha256<span class="w"> </span>-pkeyopt<span class="w"> </span>rsa_mgf1_md:sha256<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-c<span class="k">)</span>
+<span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="nv">$GOT</span><span class="s2">"</span><span class="w"> </span>-eq<span class="w"> </span><span class="s2">"</span><span class="nv">$LEN</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"OK: pwdfile.enc decrypts to the password you typed (</span><span class="nv">$LEN</span><span class="s2"> bytes with the newline)"</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: decrypt test failed"</span>
+chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>key.pem<span class="w"> </span>pwdfile.enc
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>db-user-pass<span class="w"> </span>--ignore-not-found
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>db-user-pass<span class="w"> </span>--from-file<span class="o">=</span>pwdfile.enc<span class="w"> </span>--from-file<span class="o">=</span>key.pem
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>db-user-pass<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.data}'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-o<span class="w"> </span><span class="s1">'"[a-z.]*"'</span><span class="w"> </span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>OK: pwdfile.enc decrypts…</code> (only the length is shown, never the password), then <code>"key.pem"</code> and <code>"pwdfile.enc"</code>. Remember the password: it's the one for <code>SYS</code>, <code>SYSTEM</code> and the PDB admin when you connect in Phase 12.</p>
+<p><strong>Where the files stay:</strong> <code>/root/rac-op/secrets</code> on op-controlplane, readable only by root. To change the password later, run 9.2 again and recreate the database.</p>
+</section>
+<section class="sec"><h2 id="phase-10-the-asm-disks-and-the-room-on-the-workers"><span class="eyebrow">Phase 10</span>The ASM disks and the room on the workers</h2>
+<p><strong>Result of this phase:</strong> the three shared disks' stable names, the same on both workers and saved on op-controlplane for the <code>RacDatabase</code>, and the memory, CPU and hugepages each worker can give a RAC pod.</p>
+<p><strong>Why no PVs by hand:</strong> in the manual lab you created the ASM PersistentVolumes and claims yourself (its Phase 7). Here the <code>RacDatabase</code> lists the disks' paths on the workers, and the operator creates the PVs from them. It only needs the right names.</p>
+<h3 id="101-find-the-disks-by-id-names-from-the-pc">10.1 Find the disks' by-id names (from the PC)</h3>
+<p><strong>Why by-id and not <code>/dev/sdd</code>:</strong> <code>sdX</code> letters depend on discovery order and can differ between the workers. The by-id name comes from the disk's serial number, which VirtualBox derives from the VDI's UUID, so it's the same on both workers.</p>
+<p>The block looks up each disk's UUID, finds its by-id name on both workers, checks they match and that the disk is blank, and saves the three paths on op-controlplane as <code>VOTE=</code>, <code>DATA=</code> and <code>FRA=</code> lines in <code>/root/rac-op/asm-disks</code> for the <code>RacDatabase</code>.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span><span class="p">;</span> <span class="nv">$Base</span> <span class="p">=</span> <span class="s2">"D:\VMs\rac-op"</span>
+<span class="nv">$ASM</span> <span class="p">=</span> <span class="no">[ordered]</span><span class="p">@{};</span> <span class="nv">$Disks</span> <span class="p">=</span> <span class="no">[ordered]</span><span class="p">@{</span><span class="n">VOTE</span><span class="p">=</span><span class="s2">"vote1"</span><span class="p">;</span> <span class="n">DATA</span><span class="p">=</span><span class="s2">"asm1"</span><span class="p">;</span> <span class="n">FRA</span><span class="p">=</span><span class="s2">"asm2"</span><span class="p">}</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$d</span> <span class="k">in</span> <span class="nv">$Disks</span><span class="p">.</span><span class="n">GetEnumerator</span><span class="p">())</span> <span class="p">{</span>
+  <span class="nv">$pre</span> <span class="p">=</span> <span class="p">((&amp;</span> <span class="nv">$VB</span> <span class="n">showmediuminfo</span> <span class="n">disk</span> <span class="s2">"$Base\shared\</span><span class="p">$(</span><span class="nv">$d</span><span class="p">.</span><span class="n">Value</span><span class="p">)</span><span class="s2">.vdi"</span><span class="p">)</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^UUID:\s+([0-9a-f]{8})'</span><span class="p">).</span><span class="n">Matches</span><span class="p">[</span><span class="n">0</span><span class="p">].</span><span class="n">Groups</span><span class="p">[</span><span class="n">1</span><span class="p">].</span><span class="n">Value</span>
+  <span class="nv">$w1</span> <span class="p">=</span> <span class="n">ssh</span> <span class="n">-p</span> <span class="n">2221</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"ls /dev/disk/by-id/ | grep -v part | grep ^ata-VBOX_HARDDISK_VB$pre-"</span>
+  <span class="nv">$w2</span> <span class="p">=</span> <span class="n">ssh</span> <span class="n">-p</span> <span class="n">2222</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"ls /dev/disk/by-id/ | grep -v part | grep ^ata-VBOX_HARDDISK_VB$pre-"</span>
+  <span class="nv">$blank</span> <span class="p">=</span> <span class="n">ssh</span> <span class="n">-p</span> <span class="n">2221</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"blkid -p /dev/disk/by-id/$w1 &gt;/dev/null 2&gt;&amp;1 &amp;&amp; echo used || echo blank"</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nv">$w1</span> <span class="o">-and</span> <span class="p">(</span><span class="nv">$w1</span> <span class="o">-eq</span> <span class="nv">$w2</span><span class="p">)</span> <span class="o">-and</span> <span class="p">(@(</span><span class="nv">$w1</span><span class="p">).</span><span class="n">Count</span> <span class="o">-eq</span> <span class="n">1</span><span class="p">))</span> <span class="p">{</span> <span class="nv">$ASM</span><span class="p">[</span><span class="nv">$d</span><span class="p">.</span><span class="n">Key</span><span class="p">]</span> <span class="p">=</span> <span class="s2">"/dev/disk/by-id/$w1"</span><span class="p">;</span> <span class="s2">"OK    </span><span class="p">$(</span><span class="nv">$d</span><span class="p">.</span><span class="n">Key</span><span class="p">)</span><span class="s2"> (</span><span class="p">$(</span><span class="nv">$d</span><span class="p">.</span><span class="n">Value</span><span class="p">)</span><span class="s2">) = $w1 (same on both workers, $blank)"</span> <span class="p">}</span>
+  <span class="k">else</span> <span class="p">{</span> <span class="s2">"STOP  </span><span class="p">$(</span><span class="nv">$d</span><span class="p">.</span><span class="n">Key</span><span class="p">)</span><span class="s2"> (</span><span class="p">$(</span><span class="nv">$d</span><span class="p">.</span><span class="n">Value</span><span class="p">)</span><span class="s2">, VB$pre): op-worker1 sees '$w1', op-worker2 sees '$w2'"</span> <span class="p">}</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="nv">$ASM</span><span class="p">.</span><span class="n">Count</span> <span class="o">-eq</span> <span class="n">3</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">(</span><span class="nv">$ASM</span><span class="p">.</span><span class="n">GetEnumerator</span><span class="p">()</span> <span class="p">|</span> <span class="k">ForEach</span><span class="n">-Object</span> <span class="p">{</span> <span class="s2">"</span><span class="p">$(</span><span class="nv">$_</span><span class="p">.</span><span class="n">Key</span><span class="p">)</span><span class="s2">=</span><span class="p">$(</span><span class="nv">$_</span><span class="p">.</span><span class="n">Value</span><span class="p">)</span><span class="s2">"</span> <span class="p">})</span> <span class="n">-join</span> <span class="s2">"</span><span class="se">`n</span><span class="s2">"</span> <span class="p">|</span> <span class="n">ssh</span> <span class="n">-p</span> <span class="n">2220</span> <span class="n">root</span><span class="nv">@127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="s2">"tr -d '\r' &gt; /root/rac-op/asm-disks; cat /root/rac-op/asm-disks"</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><strong>Check:</strong> three <code>OK</code> lines (<code>VOTE</code>, <code>DATA</code>, <code>FRA</code>), each ending in <code>blank</code>, then the three <code>VOTE=…</code>, <code>DATA=…</code>, <code>FRA=…</code> lines as saved on op-controlplane. <code>used</code> instead of <code>blank</code> means the disk carries a signature from earlier use; ASM refuses such disks, so stop and paste the output.</p>
+<h3 id="102-what-each-worker-can-give-a-rac-pod-op-controlplane">10.2 What each worker can give a RAC pod (op-controlplane)</h3>
+<p><strong>Why it matters here:</strong> the operator's admission check refuses a <code>RacDatabase</code> whose pods get less than <strong>16 GiB</strong> of memory, and it wants the SGA to fit into the hugepages. The manual lab ran its pods with 12 GiB. This shows what Kubernetes has left on each worker after the system and the pods already running there, including the operator's own controllers.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>w<span class="w"> </span><span class="k">in</span><span class="w"> </span>op-worker1<span class="w"> </span>op-worker2<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- </span><span class="nv">$w</span><span class="s2"> allocatable: </span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>node<span class="w"> </span><span class="nv">$w</span><span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'cpu={.status.allocatable.cpu} memory={.status.allocatable.memory} hugepages-2Mi={.status.allocatable.hugepages-2Mi}'</span><span class="k">)</span><span class="s2">"</span>
+<span class="w">  </span>kubectl<span class="w"> </span>describe<span class="w"> </span>node<span class="w"> </span><span class="nv">$w</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">'/Allocated resources/,/Events/p'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'^\s+(cpu|memory|hugepages-2Mi)\s'</span>
+<span class="k">done</span>
+</code></pre></div>
+<p><strong>Check:</strong> note for each worker the allocatable <code>memory</code> (about 18 GiB is expected: 22 GB minus the 4 GiB of hugepages) and <code>hugepages-2Mi</code> (<code>4Gi</code>), and how much memory is already requested. Paste the output: the sizes in Phase 11 are chosen from it.</p>
+</section>
+<section class="sec"><h2 id="phase-11-the-racdatabase"><span class="eyebrow">Phase 11</span>The RacDatabase</h2>
+<p><strong>Result of this phase:</strong> a 2-node RAC database <code>ORCLCDB</code> with the pluggable database <code>ORCLPDB</code> and the service <code>orclpdbsvc</code>, created by the operator from one YAML file: pods <code>racnode1-0</code> and <code>racnode2-0</code>, Grid Infrastructure, the ASM disk groups <code>VOTEDG</code>, <code>DATA</code> and <code>FRA</code>, and the database.</p>
+<h3 id="111-make-room-for-16-gib-pods-op-controlplane">11.1 Make room for 16 GiB pods (op-controlplane)</h3>
+<p><strong>The sizing, from 10.2:</strong> each worker has 17,845,504 KiB (17.0 GiB) allocatable. The operator refuses pods with less than 16 GiB. op-worker1 already has 500 MiB requested and op-worker2 900 MiB, most of it by the operator's own three controller pods (two of them on op-worker2). A 16 GiB RAC pod would fit on op-worker2 with only about 140 MiB to spare, and the pod would stay <code>Pending</code> after any restart that moved a controller pod there.</p>
+<p><strong>The fix:</strong> run the operator with one controller pod instead of three. Only one of the three is ever active (the others wait in leader election), so the lab loses nothing but standby copies. That frees about 400 MiB per controller pod removed.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>oracle-database-operator-system<span class="w"> </span>scale<span class="w"> </span>deploy/oracle-database-operator-controller-manager<span class="w"> </span>--replicas<span class="o">=</span><span class="m">1</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>oracle-database-operator-system<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deploy/oracle-database-operator-controller-manager<span class="w"> </span>--timeout<span class="o">=</span>300s
+kubectl<span class="w"> </span>-n<span class="w"> </span>oracle-database-operator-system<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-o<span class="w"> </span>wide
+<span class="k">for</span><span class="w"> </span>w<span class="w"> </span><span class="k">in</span><span class="w"> </span>op-worker1<span class="w"> </span>op-worker2<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- </span><span class="nv">$w</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>describe<span class="w"> </span>node<span class="w"> </span><span class="nv">$w</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">'/Allocated resources/,/Events/p'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'^\s+memory\s'</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+</code></pre></div>
+<p><strong>Check:</strong> one controller pod <code>Running</code>, and each worker's requested memory below about 900 MiB. With 16 GiB for the RAC pod, that leaves more than 1 GiB per worker.</p>
+<p><strong>What the pods get:</strong></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Value</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>resources</code> memory</td>
+<td>16Gi (requests = limits)</td>
+<td>the operator's minimum; requests = limits keeps the pod in the Guaranteed class, as in the manual lab</td>
+</tr>
+<tr>
+<td><code>resources</code> hugepages-2Mi</td>
+<td>4Gi</td>
+<td>the 2048 pages each worker reserved in 4g</td>
+</tr>
+<tr>
+<td><code>resources</code> cpu</td>
+<td>3</td>
+<td>4 vCPUs per worker, one left for the worker itself</td>
+</tr>
+<tr>
+<td><code>sgaSize</code> / <code>pgaSize</code></td>
+<td>3G / 1G</td>
+<td>the SGA must fit in the hugepages, and SGA + PGA must stay within 80 % of the pod's memory</td>
+</tr>
+<tr>
+<td><code>cpuCount</code></td>
+<td>3</td>
+<td>matches the CPU limit</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="112-write-and-check-the-racdatabase-op-controlplane">11.2 Write and check the RacDatabase (op-controlplane)</h3>
+<p><strong>What each part maps to</strong> (the manual lab step it replaces in brackets):</p>
+<ul>
+<li><strong><code>instanceDetails</code>:</strong> 2 nodes named <code>racnode1-0</code> / <code>racnode2-0</code>, Oracle homes under <code>/scratch/rac/cluster01/racnode&lt;n&gt;</code> (manual 4f, 10.4), private interfaces <code>eth1</code> / <code>eth2</code> from the two Multus networks (6.3), on workers labelled <code>raccluster=raccluster01</code> (5.4).</li>
+<li><strong><code>envVars</code>:</strong> the setup log in <code>/tmp/orod</code>, and <code>IGNORE_CRS_PREREQS</code> / <code>IGNORE_DB_PREREQS</code>: in a container on VirtualBox some optional prerequisite checks always fail (no swap, <code>/dev/shm</code> as tmpfs), as the manual lab's <code>INS-13014</code> warnings showed (manual 11.4).</li>
+<li><strong><code>CRS_ASM_DISCOVERY_STRING</code>:</strong> the list of disks ASM may look at (its <code>asm_diskstring</code>). <strong>Without it the install fails at the DATA/FRA step</strong> (see 11.4): Oracle's setup script builds the discovery string from the first <code>CRSDG</code> disk only, by cutting the last 2 characters of its path and adding <code>*</code>. That works for names like <code>/dev/sdd</code> → <code>/dev/sd*</code>, but each by-id name starts with its own UUID, so only the vote disk would match. Listing all three paths lets ASM see every disk from the start.</li>
+<li><strong><code>asmDiskGroupDetails</code>:</strong> three disk groups, each on one disk from 10.1 and with external redundancy (VirtualBox is the only copy anyway): <code>VOTEDG</code> of type <code>CRSDG</code> for the cluster's voting file and OCR, <code>DATA</code> of type <code>DBDATAFILESDG</code> for the database files, and <code>FRA</code> of type <code>DBRECOVERY</code> for the recovery area. The operator creates the PVs (manual Phase 7) and Grid creates <code>VOTEDG</code> during its install; the database groups follow before DBCA.</li>
+<li><strong><code>sshKeySecret</code>, <code>dbSecret</code>:</strong> the Secrets from Phase 9, with the same OpenSSL settings used to encrypt the password.</li>
+<li><strong><code>image</code>, <code>imagePullPolicy: IfNotPresent</code>:</strong> the slim image built on each worker in 8.1; <code>IfNotPresent</code> because it exists only locally.</li>
+<li><strong><code>resources</code>, <code>securityContext.sysctls</code>:</strong> sizes from 11.1, and the kernel settings the manual lab put in its StatefulSets (10.4). <code>kernel.shmmax</code> must be at least the SGA and <code>kernel.shmall</code> at least SGA / 4096; 8 GiB and 2,097,152 pages cover the 3 GB SGA.</li>
+<li><strong><code>configParams</code>:</strong> the same homes as the manual lab, the 19.32 gold-image zips in <code>/scratch/software/stage</code> (8.2), <code>ORCLCDB</code> with <code>ORCLPDB</code>.</li>
+</ul>
+<p>The block fills in the three disk paths from <code>/root/rac-op/asm-disks</code>, then asks the API server to <strong>check</strong> the file without creating anything (<code>--dry-run=server</code>). That runs the operator's own admission check, so any sizing or field problem shows up now.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">source</span><span class="w"> </span>/root/rac-op/asm-disks<span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"VOTE=</span><span class="nv">$VOTE</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"DATA=</span><span class="nv">$DATA</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"FRA=</span><span class="nv">$FRA</span><span class="s2">"</span>
+cat<span class="w"> </span>&gt;<span class="w"> </span>/root/rac-op/racdb.yaml<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
+<span class="s">apiVersion: database.oracle.com/v4</span>
+<span class="s">kind: RacDatabase</span>
+<span class="s">metadata:</span>
+<span class="s">  name: racdb</span>
+<span class="s">  namespace: rac</span>
+<span class="s">spec:</span>
+<span class="s">  instanceDetails:</span>
+<span class="s">    nodeCount: 2</span>
+<span class="s">    racHostSwLocation: /scratch/rac/cluster01</span>
+<span class="s">    racNodeName: racnode</span>
+<span class="s">    privateIPDetails:</span>
+<span class="s">      - { name: macvlan-conf1, interface: eth1 }</span>
+<span class="s">      - { name: macvlan-conf2, interface: eth2 }</span>
+<span class="s">    workerNodeSelector: { raccluster: raccluster01 }</span>
+<span class="s">  envVars:</span>
+<span class="s">    - { name: LOG_DIR, value: /tmp/orod }</span>
+<span class="s">    - { name: IGNORE_CRS_PREREQS, value: "true" }</span>
+<span class="s">    - { name: IGNORE_DB_PREREQS, value: "true" }</span>
+<span class="s">    - { name: CRS_ASM_DISCOVERY_STRING, value: "$VOTE,$DATA,$FRA" }</span>
+<span class="s">  asmDiskGroupDetails:</span>
+<span class="s">    - { name: VOTEDG, redundancy: EXTERNAL, type: CRSDG, disks: [ $VOTE ] }</span>
+<span class="s">    - { name: DATA, redundancy: EXTERNAL, type: DBDATAFILESDG, disks: [ $DATA ] }</span>
+<span class="s">    - { name: FRA, redundancy: EXTERNAL, type: DBRECOVERY, disks: [ $FRA ] }</span>
+<span class="s">  sshKeySecret: { name: ssh-key-secret, privKeySecretName: ssh-privkey, pubKeySecretName: ssh-pubkey }</span>
+<span class="s">  dbSecret:</span>
+<span class="s">    name: db-user-pass</span>
+<span class="s">    keyFileName: key.pem</span>
+<span class="s">    pwdFileName: pwdfile.enc</span>
+<span class="s">    encryptionType: pkeyutl</span>
+<span class="s">    pkeyopt: "rsa_padding_mode:oaep;rsa_oaep_md:sha256;rsa_mgf1_md:sha256"</span>
+<span class="s">  image: localhost/oracle/database-rac:19.3.0-slim</span>
+<span class="s">  imagePullPolicy: IfNotPresent</span>
+<span class="s">  scanSvcName: racnode-scan</span>
+<span class="s">  scanSvcTargetPort: 31521</span>
+<span class="s">  serviceDetails: { name: orclpdbsvc }</span>
+<span class="s">  resources:</span>
+<span class="s">    requests: { cpu: "3", memory: 16Gi, hugepages-2Mi: 4Gi }</span>
+<span class="s">    limits:   { cpu: "3", memory: 16Gi, hugepages-2Mi: 4Gi }</span>
+<span class="s">  securityContext:</span>
+<span class="s">    sysctls:</span>
+<span class="s">      - { name: kernel.shmall, value: "2097152" }</span>
+<span class="s">      - { name: kernel.sem, value: "250 32000 100 128" }</span>
+<span class="s">      - { name: kernel.shmmax, value: "8589934592" }</span>
+<span class="s">      - { name: kernel.shmmni, value: "4096" }</span>
+<span class="s">      - { name: net.ipv4.conf.all.rp_filter, value: "2" }</span>
+<span class="s">  configParams:</span>
+<span class="s">    gridHome: /u01/app/19c/grid</span>
+<span class="s">    gridBase: /u01/app/grid</span>
+<span class="s">    dbHome: /u01/app/oracle/product/19c/dbhome_1</span>
+<span class="s">    dbBase: /u01/app/oracle</span>
+<span class="s">    inventory: /u01/app/oraInventory</span>
+<span class="s">    hostSwStageLocation: /scratch/software/stage</span>
+<span class="s">    gridSwZipFile: oracle-gridhome-19.32.zip</span>
+<span class="s">    dbSwZipFile: oracle-dbhome-19.32.zip</span>
+<span class="s">    dbName: ORCLCDB</span>
+<span class="s">    pdbName: ORCLPDB</span>
+<span class="s">    sgaSize: "3G"</span>
+<span class="s">    pgaSize: "1G"</span>
+<span class="s">    cpuCount: 3</span>
+<span class="s">EOF</span>
+kubectl<span class="w"> </span>apply<span class="w"> </span>--dry-run<span class="o">=</span>server<span class="w"> </span>-f<span class="w"> </span>/root/rac-op/racdb.yaml
+</code></pre></div>
+<p><strong>Check:</strong> the three <code>VOTE=</code>, <code>DATA=</code> and <code>FRA=</code> paths printed, and <code>racdatabase.database.oracle.com/racdb created (server dry run)</code>. Nothing has been created yet. Any <code>admission webhook ... denied the request</code> message names the field it objects to; paste it.</p>
+<h3 id="113-create-the-database-and-follow-it-op-controlplane">11.3 Create the database and follow it (op-controlplane)</h3>
+<p><strong>What happens after <code>apply</code>:</strong> the operator creates the ASM PVs and claims, the headless Services (node names, VIPs, SCAN) and one StatefulSet per node. When both pods are running, the setup scripts in <code>racnode1-0</code> unzip the Grid gold image, install and configure Grid on both nodes, create the <code>VOTEDG</code> disk group, install the database home, create <code>DATA</code> and <code>FRA</code> and run DBCA. That's the manual lab's Phases 7 and 10–12 in one go, and took about three hours in this lab: the shared D: drive makes the unzips and DBCA slow.</p>
+<p><strong>First, confirm the file is complete:</strong> a terminal can drop lines from a long paste. The last lines must be the <code>configParams</code> values down to <code>cpuCount: 3</code>.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>tail<span class="w"> </span>-16<span class="w"> </span>/root/rac-op/racdb.yaml
+grep<span class="w"> </span>-c<span class="w"> </span>.<span class="w"> </span>/root/rac-op/racdb.yaml
+<span class="k">for</span><span class="w"> </span>w<span class="w"> </span><span class="k">in</span><span class="w"> </span>op-worker1<span class="w"> </span>op-worker2<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- </span><span class="nv">$w</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>describe<span class="w"> </span>node<span class="w"> </span><span class="nv">$w</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">'/Allocated resources/,/Events/p'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'^\s+memory\s'</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+</code></pre></div>
+<p><strong>Check:</strong> the tail ends with <code>dbName: ORCLCDB</code>, <code>pdbName: ORCLPDB</code>, <code>sgaSize: "3G"</code>, <code>pgaSize: "1G"</code>, <code>cpuCount: 3</code>; the file has 59 lines; and the requested memory has dropped now that the two extra controller pods are gone (about 500 MiB on op-worker2).</p>
+<p><strong>Then create it and watch the pods come up:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>/root/rac-op/racdb.yaml
+sleep<span class="w"> </span><span class="m">30</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase,sts,svc,pvc
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-o<span class="w"> </span>wide<span class="w"> </span>-w
+</code></pre></div>
+<p><strong>Check:</strong> two StatefulSets, the headless Services and three <code>Bound</code> PVCs appear, then <code>racnode1-0</code> and <code>racnode2-0</code> reach <code>Running</code> (<code>0/1</code> READY is expected for a long time). Note which worker each pod is on. Press Ctrl+C to stop watching.</p>
+<p>If a pod stays <code>Pending</code> or <code>ContainerCreating</code> for more than five minutes, run <code>kubectl -n rac describe pod racnode1-0 | tail -20</code> and paste the events. If no pods appear at all, the operator's log says why: <code>kubectl -n oracle-database-operator-system logs deploy/oracle-database-operator-controller-manager --tail=40</code>.</p>
+<p><strong>Follow the install:</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note">(about three hours)</span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>tail<span class="w"> </span>-f<span class="w"> </span>/tmp/orod/oracle_db_setup.log
+</code></pre></div>
+<p><strong>Check:</strong> the log ends with a banner saying <strong><code>ORACLE RAC DATABASE IS READY TO USE</code></strong>. Press Ctrl+C to stop following; the install carries on regardless. If the log stops moving for more than 20 minutes or shows <code>ERROR</code> / <code>failed</code> / <code>[FATAL]</code>, paste its last 40 lines (<code>kubectl -n rac exec racnode1-0 -c racnode1-0 -- tail -40 /tmp/orod/oracle_db_setup.log</code>). The times in the log are UTC.</p>
+<p><strong>What the log goes through</strong> (times from this lab's run, US Eastern):</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What happens</th>
+<th>Took</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Disk check</td>
+<td>a short-lived <code>disk-check-daemonset</code> pod per worker reads the disk sizes, then is deleted; its pods show <code>Error</code> while terminating, which is normal</td>
+<td>seconds</td>
+</tr>
+<tr>
+<td>Unzips</td>
+<td>each pod unzips the Grid home (about 11 GB) and the DB home into its own <code>/u01</code>, both pods at once; the log is silent during <code>unzip -q</code></td>
+<td>8:25–9:17 PM</td>
+</tr>
+<tr>
+<td>SSH</td>
+<td>trust for <code>grid</code> and <code>oracle</code> between the pods, using the keys from <code>ssh-key-secret</code></td>
+<td>2 min</td>
+</tr>
+<tr>
+<td>Grid software</td>
+<td><code>gridSetup.sh … -noCopy … CRS_SWONLY</code> on each node, then <code>orainstRoot.sh</code> and <code>root.sh</code>; <code>-noCopy</code> because every node already has its home, so nothing is copied over the network</td>
+<td>3 min</td>
+</tr>
+<tr>
+<td>Grid config</td>
+<td><code>gridSetup.sh -responseFile … -noCopy</code>, then <code>root.sh</code> on racnode1-0 (creates <strong>VOTEDG</strong>, OCR and voting file) and racnode2-0; then <code>-executeConfigTools</code></td>
+<td>15 min</td>
+</tr>
+<tr>
+<td>DB software</td>
+<td><code>runInstaller … -noCopy INSTALL_DB_SWONLY</code> on each node (relinks <code>bin/oracle</code>), then the DB <code>root.sh</code></td>
+<td>8 min</td>
+</tr>
+<tr>
+<td>Disk groups</td>
+<td><code>asmca -createDiskGroup</code> for <strong>FRA</strong> and <strong>DATA</strong></td>
+<td>1 min</td>
+</tr>
+<tr>
+<td>DBCA</td>
+<td>creates <code>ORCLCDB</code> (instances on both pods) and <code>ORCLPDB</code>, sets up listeners and the service</td>
+<td>80 min (10:03–11:22 PM)</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td>from <code>apply</code> to <code>ORACLE RAC DATABASE IS READY TO USE</code>, including the 11.4 stop</td>
+<td>about 3 hours</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Warnings that are expected</strong> (the script logs them and carries on):</p>
+<ul>
+<li><code>SSH trust not ready yet for racnode1-0 -&gt; racnode2-0</code>: racnode2-0 was still finishing its own setup; the later "Final SSH verification successful" is what counts.</li>
+<li><code>OPatch failed with error code 106 … cannot locate … oraInst.loc</code>: the script tries OPatch on a home that isn't registered yet; there are no patches to apply to the 19.32 gold image.</li>
+<li><code>returned code : 6 … [INS-13014] Target environment does not meet some optional requirements</code>: the same container prerequisite warnings as the manual lab.</li>
+<li><code>home directory is not empty. skipping software unzipping…</code> (logged as ERROR): only on a rerun (11.4).</li>
+<li><code>ASMCMD-8001: diskgroup 'FRA' does not exist</code>: the script checks for the disk group before creating it.</li>
+<li><code>Could not locate file: …/install/files.lst</code> in the installer log: there's no file list because nothing was copied.</li>
+</ul>
+<p><strong>Quick checks while it runs</strong> (each takes seconds):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span>racnode1-0<span class="w"> </span>racnode2-0<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$p</span><span class="s2">  "</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="nv">$p</span><span class="w"> </span>-c<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>--<span class="w"> </span>du<span class="w"> </span>-sh<span class="w"> </span>/u01/app/19c/grid<span class="w"> </span>/u01/app/oracle/product/19c/dbhome_1<span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span><span class="s1">'\n'</span><span class="w"> </span><span class="s1">' '</span><span class="p">;</span><span class="w"> </span>echo<span class="p">;</span><span class="w"> </span><span class="k">done</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"crsctl check cluster -all; asmcmd lsdg"</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null
+</code></pre></div>
+<p>The first line shows the unzips growing (about 11G each when done). The second works once Grid is configured: CRS, CSS and EVM online on both nodes, and the disk groups mounted so far.</p>
+<p><strong>Following DBCA</strong> (the main log is silent while it runs):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s1">'tail -5 $(ls -t /u01/app/oracle/cfgtoollogs/dbca/ORCLCDB/*.log 2&gt;/dev/null | grep -v trace | head -1)'</span>
+</code></pre></div>
+<p><strong>Check:</strong> percentage lines such as <code>Copying database files</code>, <code>Creating cluster database views</code>, <code>Creating Pluggable Databases</code>, ending at <code>100% complete</code>.</p>
+<h3 id="114-if-data-or-fra-creation-fails-with-ora-15014-what-happened-in-this-lab">11.4 If DATA or FRA creation fails with ORA-15014 (what happened in this lab)</h3>
+<p>The first run of this lab, without <code>CRS_ASM_DISCOVERY_STRING</code> in the YAML, stopped right after the DB home install:</p>
+<div class="cmd"><div class="cmd-head"><span class="where file">text</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>asmca -silent -createDiskGroup -diskGroupName FRA -redundancy EXTERNAL -disk '/dev/disk/by-id/ata-VBOX_HARDDISK_VB204551ec-…'
+[FATAL] [DBT-30006] Exception while Processing Request.
+   CAUSE: ORA-15018: diskgroup cannot be created
+ORA-15031: disk specification '/dev/disk/by-id/ata-VBOX_HARDDISK_VB204551ec-…' matches no disks
+ORA-15014: path '/dev/disk/by-id/ata-VBOX_HARDDISK_VB204551ec-…' is not in the discovery set
+</code></pre></div>
+<p><strong>Cause:</strong> when Grid was configured, the setup script set ASM's discovery string from the first <code>CRSDG</code> disk only: <code>/dev/disk/by-id/ata-VBOX_HARDDISK_VB67cb0647-80696c*</code>. That pattern matches the vote disk and nothing else, so ASM couldn't see the DATA and FRA disks. The script marked itself <code>failed</code> and stopped. Grid, VOTEDG and both homes were fine.</p>
+<p><strong>Fix without starting over:</strong> widen the discovery string, then run the setup script again. It skips everything already done (unzips, Grid, DB home) and continues with the disk groups and DBCA.</p>
+<p><strong>a. Check the state</strong> (changes nothing):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s1">'echo "state: $(cat /tmp/orod/.statefile 2&gt;/dev/null)"'</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>ps<span class="w"> </span>-eo<span class="w"> </span>pid,etime,args<span class="w"> </span>--sort<span class="o">=</span>etime<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'[m]ain\.py|[r]unOracle'</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"asmcmd dsget"</span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>state: failed</code>; no <code>main.py</code> / <code>runOracle</code> line, or only short-lived <code>main.py --checkracinst</code> / <code>--checkdbrole</code> lines (the pod's health probes); <code>dsget</code> shows the single <code>…VB&lt;vote&gt;…*</code> pattern.</p>
+<p><strong>b. Widen the discovery string</strong> to all three disks. <code>dsset</code> writes it to both places ASM keeps it, the cluster profile (GPnP) and the ASM spfile in VOTEDG, so it's cluster-wide and survives restarts; nothing restarts.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">source</span><span class="w"> </span>/root/rac-op/asm-disks
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"asmcmd dsset '</span><span class="nv">$VOTE</span><span class="s2">,</span><span class="nv">$DATA</span><span class="s2">,</span><span class="nv">$FRA</span><span class="s2">'"</span>
+<span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span>racnode1-0<span class="w"> </span>racnode2-0<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"--- </span><span class="nv">$p</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="nv">$p</span><span class="w"> </span>-c<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"asmcmd dsget; asmcmd lsdsk -p --candidate"</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+</code></pre></div>
+<p><strong>Check:</strong> on both pods, <code>parameter:</code> and <code>profile:</code> list all three paths, and the DATA and FRA disks are listed as <code>CANDIDATE</code>. (<code>command terminated with exit code 1</code> after <code>lsdsk --candidate</code> is normal.)</p>
+<p><strong>c. Run the setup script again</strong>, detached so it keeps running after you disconnect. The check looks only for a python <code>main.py</code> that isn't a health probe; a plain <code>pgrep -f main.py</code> would match its own <code>bash -c</code> command line and always say "running".</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s1">'</span>
+<span class="s1">running=$(ps -eo pid,args | awk "\$2 ~ /python/ &amp;&amp; /main\\.py/ &amp;&amp; !/check/")</span>
+<span class="s1">if [ -n "$running" ]; then echo "STOP: setup already running:"; echo "$running"; exit 1; fi</span>
+<span class="s1">setsid nohup /opt/scripts/startup/runOracle.sh &gt; /tmp/orod/rerun.out 2&gt;&amp;1 &lt; /dev/null &amp;</span>
+<span class="s1">sleep 8; ps -eo pid,etime,args | awk "\$3 ~ /python/ &amp;&amp; /main\\.py/ &amp;&amp; !/check/" &amp;&amp; echo "setup restarted"'</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>tail<span class="w"> </span>-f<span class="w"> </span>/tmp/orod/oracle_db_setup.log
+</code></pre></div>
+<p><strong>Check:</strong> <code>python3 main.py</code> with a few seconds of runtime and <code>setup restarted</code>; then new log lines with the current UTC time: "Grid is already installed on this machine … Skipping Grid setup", CVU checks passing on both nodes, <code>asmca … FRA</code> and <code>asmca … DATA</code> returning code 0, and DBCA starting. From there the install continues as in 11.3.</p>
+<h3 id="115-verify-the-database-op-controlplane">11.5 Verify the database (op-controlplane)</h3>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase<span class="w"> </span>racdb<span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-o<span class="w"> </span>wide
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl status database -d ORCLCDB -v; srvctl status service -d ORCLCDB"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"asmcmd lsdg"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s1">'export ORACLE_SID=ORCLCDB1; sqlplus -s / as sysdba &lt;&lt;EOF</span>
+<span class="s1">set lines 200 pages 100</span>
+<span class="s1">col name for a60</span>
+<span class="s1">select inst_id, instance_name, host_name, status from gv\$instance;</span>
+<span class="s1">select name, open_mode from v\$pdbs;</span>
+<span class="s1">select log_mode from v\$database;</span>
+<span class="s1">select name from v\$controlfile;</span>
+<span class="s1">select group#, thread#, bytes/1024/1024 mb, member from v\$log join v\$logfile using (group#) order by 1;</span>
+<span class="s1">show parameter db_recovery_file_dest</span>
+<span class="s1">EOF'</span>
+</code></pre></div>
+<p><strong>Check</strong> (this lab's values):</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>What</th>
+<th>Expected</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>racdb</code></td>
+<td><code>ORCLCDB  OPEN  PRIMARY  19.32.0.0.0  racnode-scan:1521/orclpdbsvc  AVAILABLE</code></td>
+</tr>
+<tr>
+<td>Pods</td>
+<td><code>racnode1-0</code> and <code>racnode2-0</code> both <code>1/1 Running</code></td>
+</tr>
+<tr>
+<td>Instances</td>
+<td><code>ORCLCDB1</code> on racnode1-0, <code>ORCLCDB2</code> on racnode2-0, both <code>OPEN</code>; <code>orclpdbsvc</code> on both</td>
+</tr>
+<tr>
+<td>PDBs</td>
+<td><code>PDB$SEED READ ONLY</code>, <code>ORCLPDB READ WRITE</code></td>
+</tr>
+<tr>
+<td>Log mode</td>
+<td><code>ARCHIVELOG</code></td>
+</tr>
+<tr>
+<td>Disk groups</td>
+<td><code>DATA</code> and <code>FRA</code> 51200 MB, <code>VOTEDG</code> 10240 MB (<code>Voting_files Y</code>), all <code>MOUNTED EXTERN</code></td>
+</tr>
+<tr>
+<td>Control file</td>
+<td><strong>one</strong>, <code>+FRA/ORCLCDB/CONTROLFILE/current.…</code></td>
+</tr>
+<tr>
+<td>Redo</td>
+<td>4 groups of 1024 MB (2 per thread), <strong>one member each, all in <code>+FRA</code></strong></td>
+</tr>
+<tr>
+<td>Recovery area</td>
+<td><code>db_recovery_file_dest +FRA</code>, <code>db_recovery_file_dest_size 23895M</code> (DBCA's default)</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>What the alert log shows afterwards</strong> (<code>/u01/app/oracle/diag/rdbms/orclcdb/ORCLCDB1/trace/alert_ORCLCDB1.log</code>): regular <code>Warning: long redo log write elapsed times detected</code>. All VM disks share one D: drive and redo shares the FRA disk with archiving, so log writes are slow; harmless in the lab. The repeated <code>ALTER SYSTEM SET _ipddb_enable=TRUE</code> lines come from the operator's health checks.</p>
+<h3 id="116-put-a-second-control-file-and-redo-member-in-data-op-controlplane">11.6 Put a second control file and redo member in DATA (op-controlplane)</h3>
+<p><strong>Why:</strong> the setup script sets <code>DB_CREATE_ONLINE_LOG_DEST_1=+FRA</code> when there's no <code>DBREDO</code> disk group, and with that set, Oracle's managed file naming puts the control file only there. The result in 11.5 is a single control file and single-member redo groups, all in FRA: losing that one disk group loses the database's only control file and its online redo. The usual layout has one copy of each in DATA and one in FRA.</p>
+<p><strong>a. A redo member in DATA for each group</strong> (the database stays open):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s1">'export ORACLE_SID=ORCLCDB1; sqlplus -s / as sysdba &lt;&lt;EOF</span>
+<span class="s1">alter database add logfile member '</span><span class="s2">"'"</span><span class="s1">'+DATA'</span><span class="s2">"'"</span><span class="s1">' to group 1;</span>
+<span class="s1">alter database add logfile member '</span><span class="s2">"'"</span><span class="s1">'+DATA'</span><span class="s2">"'"</span><span class="s1">' to group 2;</span>
+<span class="s1">alter database add logfile member '</span><span class="s2">"'"</span><span class="s1">'+DATA'</span><span class="s2">"'"</span><span class="s1">' to group 3;</span>
+<span class="s1">alter database add logfile member '</span><span class="s2">"'"</span><span class="s1">'+DATA'</span><span class="s2">"'"</span><span class="s1">' to group 4;</span>
+<span class="s1">alter system archive log current;</span>
+<span class="s1">set lines 200</span>
+<span class="s1">col member for a70</span>
+<span class="s1">select group#, status, member from v\$logfile order by 1, member;</span>
+<span class="s1">EOF'</span>
+</code></pre></div>
+<p><strong>Check:</strong> four <code>Database altered.</code>, then two members per group, one <code>+DATA/ORCLCDB/ONLINELOG/group_N.…</code> and one <code>+FRA/ORCLCDB/ONLINELOG/group_N.…</code>. In this lab the new members of groups 2 and 4 showed <code>INVALID</code>: a new member stays <code>INVALID</code> until its group is next written, which clears by itself after log switches (checked in c).</p>
+<p><strong>b. A second control file in DATA</strong> (about 5 minutes of downtime). The block changes the setting to "one copy in DATA, one in FRA", stops the database, starts only instance 1 without mounting, lets RMAN write two new copies from the current file (RMAN also writes their names into the spfile), and starts the database again. The original file isn't touched, so if anything fails you can go back to it.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">CF</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB1; echo 'set head off feed off</span>
+<span class="s2">select name from v\$controlfile;' | sqlplus -s / as sysdba"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-m1<span class="w"> </span><span class="s1">'^+'</span><span class="k">)</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"current control file: </span><span class="nv">$CF</span><span class="s2">"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB1; echo \"alter system set control_files='+DATA','+FRA' scope=spfile sid='*';\" | sqlplus -s / as sysdba</span>
+<span class="s2">srvctl stop database -d ORCLCDB</span>
+<span class="s2">srvctl start instance -d ORCLCDB -i ORCLCDB1 -startoption nomount</span>
+<span class="s2">rman target / &lt;&lt;EOF</span>
+<span class="s2">restore controlfile from '</span><span class="nv">$CF</span><span class="s2">';</span>
+<span class="s2">EOF</span>
+<span class="s2">srvctl stop instance -d ORCLCDB -i ORCLCDB1</span>
+<span class="s2">srvctl start database -d ORCLCDB</span>
+<span class="s2">echo 'select name from v\$controlfile;' | sqlplus -s / as sysdba</span>
+<span class="s2">srvctl status database -d ORCLCDB"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase<span class="w"> </span>racdb
+</code></pre></div>
+<p><strong>Check</strong> (this lab's output): <code>System altered.</code>; RMAN <code>connected to target database: ORCLCDB (not mounted)</code>, <code>channel ORA_DISK_1: copied control file copy</code>, <code>output file name=+DATA/ORCLCDB/CONTROLFILE/current.278.…</code> and <code>output file name=+FRA/ORCLCDB/CONTROLFILE/current.267.…</code>; then both names from <code>v$controlfile</code>, and <code>Instance ORCLCDB1 is running on node racnode1-0</code>, <code>Instance ORCLCDB2 is running on node racnode2-0</code>. If anything fails after <code>srvctl stop database</code>, stop and paste the output.</p>
+<p><strong>c. Check the database is fully back, then remove the old control file.</strong> The old <code>current.256…</code> in FRA is no longer in <code>control_files</code>; the block only removes it if the database doesn't list it any more.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">OLD</span><span class="o">=</span>+FRA/ORCLCDB/CONTROLFILE/current.256.1247796495
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl status database -d ORCLCDB -v; srvctl status service -d ORCLCDB"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s1">'export ORACLE_SID=ORCLCDB1; sqlplus -s / as sysdba &lt;&lt;EOF</span>
+<span class="s1">set lines 200 pages 100</span>
+<span class="s1">col member for a70</span>
+<span class="s1">col name for a60</span>
+<span class="s1">alter system archive log current;</span>
+<span class="s1">alter system archive log current;</span>
+<span class="s1">select name, open_mode from v\$pdbs;</span>
+<span class="s1">select name from v\$controlfile;</span>
+<span class="s1">select group#, status, member from v\$logfile order by 1, member;</span>
+<span class="s1">EOF'</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB1; echo 'select name from v\$controlfile;' | sqlplus -s / as sysdba"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">"</span><span class="nv">$OLD</span><span class="s2">"</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: </span><span class="nv">$OLD</span><span class="s2"> is still in use"</span><span class="w"> </span><span class="o">||</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"asmcmd rm </span><span class="nv">$OLD</span><span class="s2">; asmcmd ls +FRA/ORCLCDB/CONTROLFILE/"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase<span class="w"> </span>racdb
+</code></pre></div>
+<p><strong>Check</strong> (this lab's output): both instances <code>Open</code> with <code>orclpdbsvc</code>; <code>ORCLPDB READ WRITE</code>; the two control files <code>+DATA/…/current.278…</code> and <code>+FRA/…/current.267…</code>; all eight redo members without a status (the <code>INVALID</code> from a is gone); <code>asmcmd ls</code> shows only <code>current.267.…</code>; <code>racdb … OPEN PRIMARY 19.32.0.0.0 racnode-scan:1521/orclpdbsvc AVAILABLE</code>. If <code>ORCLPDB</code> shows <code>MOUNTED</code> instead, run <code>alter pluggable database ORCLPDB open instances=all;</code> and <code>alter pluggable database ORCLPDB save state instances=all;</code> as sysdba.</p>
+<p><strong>For the next build:</strong> a fourth disk group of type <code>DBREDO</code> in the YAML sets the online log destination separately from FRA; this lab didn't test that.</p>
+</section>
+<section class="sec"><h2 id="next-apply-it-then-phase-12">Next: apply it, then Phase 12</h2>
 <p>After Phase 6 the operator lab is at the same point as the manual lab before its Phase 7, with three deliberate differences the operator asks for: the node directories <code>racnode1</code> / <code>racnode2</code> on both workers (4f), the worker label <code>raccluster=raccluster01</code> (5.4), and the Multus networks in namespace <code>rac</code> (6.3). The rest of the worker set-up (kernel settings, SELinux module, <code>allowedUnsafeSysctls</code>, hugepages, clock source) was already in the golden image and the kubeadm configuration.</p>
-<p>The phases below follow Oracle's <a href="https://github.com/oracle/oracle-database-operator">Oracle Database Operator for Kubernetes</a> (release v2.2.0, RAC controller <code>RacDatabase</code>, API <code>database.oracle.com/v4</code>). Phases 7 and 8 are above; the rest will be written out the same way.</p>
+<p>The phases below follow Oracle's <a href="https://github.com/oracle/oracle-database-operator">Oracle Database Operator for Kubernetes</a> (release v2.2.0, RAC controller <code>RacDatabase</code>, API <code>database.oracle.com/v4</code>). Phases 7 to 11 are above. Phase 11 is done: the database is open on both nodes (11.5), with the control file and redo fix in 11.6. Next, Phase 12 opens the database to Windows.</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -1011,21 +1490,6 @@ sha256sum<span class="w"> </span>oracle-gridhome-19.32.zip<span class="w"> </spa
 </thead>
 <tbody>
 <tr>
-<td>9. Secrets</td>
-<td><code>ssh-key-secret</code> (keys <code>ssh-privkey</code>, <code>ssh-pubkey</code>); <code>db-user-pass</code> (password encrypted with OpenSSL, typed at a prompt, never written to the guide)</td>
-<td><code>create_kubernetes_secret_for_*.md</code></td>
-</tr>
-<tr>
-<td>10. ASM disks</td>
-<td>no PVs by hand: the <code>RacDatabase</code> lists the shared disks by their <code>/dev/disk/by-id/...</code> names and the operator creates the PVs</td>
-<td><code>asmDiskGroupDetails</code> in <code>racdb_prov.yaml</code></td>
-</tr>
-<tr>
-<td>11. The <code>RacDatabase</code></td>
-<td>one YAML: 2 nodes, <code>racnode</code> prefix, <code>/scratch/rac/cluster01</code>, the two NADs, the worker label, CPU/memory/hugepages sized for 22 GB workers, <code>DATA</code> disk group, the gold-image zips, then <code>kubectl apply</code> and follow <code>/tmp/orod/oracle_db_setup.log</code> until "ORACLE RAC DATABASE IS READY TO USE"</td>
-<td><code>racdb_prov.yaml</code>, <code>racdb_prov_memory_cpu.yaml</code>, <code>racdb_prov_hugepages.yaml</code></td>
-</tr>
-<tr>
 <td>12. Access from Windows</td>
 <td>the operator's NodePort option, port forwards, and the same SCAN test as the manual lab</td>
 <td><code>provisioning_oracle_rac_db_with_node_port.md</code>, <code>database_connection.md</code></td>
@@ -1035,8 +1499,10 @@ sha256sum<span class="w"> </span>oracle-gridhome-19.32.zip<span class="w"> </spa
 <p><strong>Open points:</strong></p>
 <ul>
 <li><strong>Which image (settled).</strong> The manual lab's image can't be reused: it was built from the OCNE doc's short Containerfile, and the operator drives the setup through the scripts in Oracle's own RAC image (it follows <code>/tmp/orod/oracle_db_setup.log</code>). Oracle doesn't publish the slim image on its registry, so Phase 8 builds it on each worker with <code>buildContainerImage.sh -v 19.3.0 -i -o '--build-arg SLIMMING=true'</code> (Oracle Linux 9 base).</li>
-<li><strong>Sizing.</strong> Oracle's prerequisites name 60 GB of RAM per worker and samples with 30 GiB pods. The lab's workers have 22 GB, so the <code>RacDatabase</code> sets resources explicitly, as the manual lab did (12 GiB, 3 CPU, 4 GiB hugepages).</li>
-<li><strong>Platform.</strong> Oracle lists OKE, OpenShift, OLCNE 1.9+ and Minikube as tested. A plain kubeadm cluster with CRI-O isn't on that list, so expect lab-specific workarounds, as in the manual lab.</li>
+<li><strong>Sizing (settled in 11.1).</strong> 16 GiB pods with 4 GiB of hugepages fit once the operator runs one controller pod instead of three; the <code>RAC_WEBHOOK_DEV_MODE</code> way around the 16 GiB minimum isn't needed.</li>
+<li><strong>Platform.</strong> Oracle lists OKE, OpenShift, OLCNE 1.9+ and Minikube as tested. A plain kubeadm cluster with CRI-O isn't on that list, so expect lab-specific workarounds, as in the manual lab. One showed up so far: the ASM discovery string with by-id disk names (<code>CRS_ASM_DISCOVERY_STRING</code> in 11.2, recovery in 11.4).</li>
+<li><strong>Online redo logs land in FRA.</strong> With no <code>DBREDO</code> disk group in the YAML, the setup script sets <code>DB_CREATE_ONLINE_LOG_DEST_1</code> to the recovery disk group, so the redo logs are only in <code>+FRA</code> (one member per group). That works for the lab; the usual layout keeps redo on DATA or its own disk group with a second member in FRA. The control file too ended up only in <code>+FRA</code> (11.5). 11.6 adds a second copy of each in <code>+DATA</code>. <code>db_recovery_file_dest_size</code> isn't set by the operator; DBCA chose 23895M.</li>
+<li><strong>VIPs are the pod IPs.</strong> Flannel gives each pod one IP, so <code>racnode1-0-vip</code> and <code>racnode2-0-vip</code> resolve to the pods' own addresses. A VIP can't move to the other node when its pod dies; client failover relies on SCAN and the service running on the other instance.</li>
 </ul></section>
   <footer class="foot">Built from the lab's build log and scripts (rac-k8s-poc). Values are from the author's lab; change them to match yours.</footer>
   </main>
