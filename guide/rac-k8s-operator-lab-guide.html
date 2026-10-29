@@ -201,7 +201,8 @@ p:has(+ .cmd.out) { break-after: avoid; }
 <li><a href="#phase-9-the-secrets"><span class="toc-num">9</span>The secrets</a></li>
 <li><a href="#phase-10-the-asm-disks-and-the-room-on-the-workers"><span class="toc-num">10</span>The ASM disks and the room on the workers</a></li>
 <li><a href="#phase-11-the-racdatabase"><span class="toc-num">11</span>The RacDatabase</a></li>
-<li><a href="#next-apply-it-then-phase-12"><span class="toc-num"></span>Next: apply it, then Phase 12</a></li></ol></details>
+<li><a href="#phase-12-access-from-windows"><span class="toc-num">12</span>Access from Windows</a></li>
+<li><a href="#next-steps"><span class="toc-num"></span>Next steps</a></li></ol></details>
   </nav>
   <main class="content"><section class="sec"><h2 id="how-to-use-this-guide">How to use this guide</h2>
 <p>This guide builds a <strong>second lab, the operator lab</strong>, next to the manual lab you already have. It follows the manual guide's Phases 0 and 3–6 step by step, with its own names, addresses and ports, so the two labs never overwrite each other. The RAC database itself will come from Oracle's database operator in the later phases, instead of the hand-run installs of the manual lab's Phases 8–14.</p>
@@ -1266,8 +1267,572 @@ racdatabases.database.oracle.com   2026-10-27T12:06:53Z</code></pre></div>
 <p>The <code>Warning: resource '…' is not namespace scoped</code> lines are normal: <code>kubectl auth can-i</code> notes that nodes and PersistentVolumes are cluster-wide objects.</p>
 </section>
 <section class="sec"><h2 id="phase-8-the-rac-slim-image-and-the-software"><span class="eyebrow">Phase 8</span>The RAC slim image and the software</h2>
-<p><strong>Result of this phase:</strong> Oracle's RAC slim image, <code>localhost/oracle/database-rac:19.3.0-slim</code>, on both workers, and the two 19.32 gold-image zips in <code>/scratch/software/stage</code> on both workers.</p>
+<p><strong>Result of this phase:</strong> fully patched 19.33 gold-image zips of the Grid and DB homes (built once per RU on a separate host), Oracle's RAC slim image, <code>localhost/oracle/database-rac:19.3.0-slim</code>, on both workers, and the two 19.32 gold-image zips in <code>/scratch/software/stage</code> on both workers.</p>
 <p><strong>Why on both workers:</strong> the operator may start either RAC pod on either labelled worker, and each worker's CRI-O can only start images it has locally. The image never leaves the worker it was built on, so nothing needs a registry.</p>
+<h3 id="80-build-the-1933-gold-image-zips-on-a-separate-build-host-once-per-ru">8.0 Build the 19.33 gold-image zips (on a separate build host, once per RU)</h3>
+<p><strong>What:</strong> a fully patched, unconfigured Grid home and Oracle (DB) home at <strong>19.33.0.0.261020</strong>, the October 2026 Release Update, each packed into one zip with Oracle's <code>-createGoldImage</code>. The <code>RacDatabase</code> names these zips (<code>gridSwZipFile</code>, <code>dbSwZipFile</code>); each RAC pod unzips them and runs only the software-only installs with <code>-noCopy</code>, so <strong>nothing is patched during the deployment</strong>.</p>
+<p><strong>Why a separate host:</strong> patching needs a full 19.3 home, a new OPatch and a 2–3 GB Release Update, and the <code>grid</code> and <code>oracle</code> users, but no cluster, no shared disks and no Kubernetes. Doing it once on a plain Oracle Linux 9.8 server, <code>oldblab-db1</code>, keeps that work out of the RAC lab, and the two zips are reused for every RAC build at 19.33.</p>
+<p><strong>Which RU the lab runs:</strong> the RAC database built in Phases 10–11 reports <code>19.32.0.0.0</code> (11.5, 11.6c), from the 19.32 zips staged in 8.2. This section builds the <strong>19.33</strong> zips; for a build from them, the zip names in 8.2 and in the <code>RacDatabase</code> change to <code>oracle-gridhome-19.33.zip</code> and <code>oracle-dbhome-19.33.zip</code>.</p>
+<p><strong>The steps, in the order this run did them:</strong></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Home</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a</td>
+<td>—</td>
+<td>the build host: OS, users, the downloaded software</td>
+</tr>
+<tr>
+<td>b</td>
+<td>—</td>
+<td>which patch is which, and unpacking the combo patch</td>
+</tr>
+<tr>
+<td>c–f</td>
+<td>Grid</td>
+<td>unzip 19.3, new OPatch, apply OJVM RU, GI RU and JDK patch, software-only install, gold image</td>
+</tr>
+<tr>
+<td>g–j</td>
+<td>Oracle</td>
+<td>the same for the DB home</td>
+</tr>
+<tr>
+<td>k</td>
+<td>both</td>
+<td>name, test and checksum the zips</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Why <code>-applyRU</code> before installing:</strong> <code>gridSetup.sh -applyRU</code> and <code>runInstaller -applyRU</code> patch the unzipped home first and then stop (there's no response file). The software-only install that follows then already runs the 19.33 installer, which knows Oracle Linux 9; the unpatched 19.3 installer doesn't, and would need <code>CV_ASSUME_DISTID</code>. In this run neither install needed it.</p>
+<p><strong>Why the software-only install before <code>-createGoldImage</code>:</strong> it relinks the binaries for this OS and registers the home in the inventory; <code>-createGoldImage</code> then packs the home as installed: patched, relinked, not configured (no cluster, no ASM, no database, no listener). The pod's own software-only install with <code>-noCopy</code> registers it again on each RAC node.</p>
+<h4 id="a-the-build-host">a. The build host</h4>
+<p>The host has the <code>oracle</code> and <code>grid</code> users with the standard 19c groups, and these directories, owned <code>oracle:oinstall</code> (DB side) and <code>grid:oinstall</code> (Grid side): <code>/u01/app/19.0.0/grid</code>, <code>/u01/app/grid</code>, <code>/u01/app/oraInventory</code>, <code>/u01/app/oracle/product/19.0.0/dbhome_1</code>, and <code>/u01/app/oracle/software</code> holding the downloads. (How the users and directories were created wasn't captured; the output below shows the result.) The home paths may differ from the RAC pods' (<code>/u01/app/19c/…</code>): a gold image unzips into any home path.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as labadmin</span><span class="where-note">(the build host)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span>
+uname<span class="w"> </span>-a
+cat<span class="w"> </span>/etc/os-release
+id<span class="w"> </span>oracle
+id<span class="w"> </span>grid
+ls<span class="w"> </span>-altrh<span class="w"> </span>/u01/app/oracle/software/
+</code></pre></div>
+<p><strong>Check:</strong> Oracle Linux 9.8 on UEK; <code>oracle</code> in <code>oinstall</code>, <code>dba</code>, <code>oper</code>, <code>backupdba</code>, <code>dgdba</code>, <code>kmdba</code>, <code>racdba</code>, <code>asmdba</code>; <code>grid</code> in <code>oinstall</code>, <code>racdba</code>, <code>asmdba</code>, <code>asmoper</code>, <code>asmadmin</code>; the two 19.3 base zips, the RUs, the JDK patch and OPatch (17 GB in all).</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[labadmin@oldblab-db1 ~]$ uname -a
+Linux oldblab-db1 6.12.0-207.111.5.1.el9uek.x86_64 #2 SMP PREEMPT_DYNAMIC Thu Oct  1 11:42:26 PDT 2026 x86_64 x86_64 x86_64 GNU/Linux
+[labadmin@oldblab-db1 ~]$ cat /etc/os-release
+NAME=&quot;Oracle Linux Server&quot;
+VERSION=&quot;9.8&quot;
+ID=&quot;ol&quot;
+ID_LIKE=&quot;fedora&quot;
+VARIANT=&quot;Server&quot;
+VARIANT_ID=&quot;server&quot;
+VERSION_ID=&quot;9.8&quot;
+PLATFORM_ID=&quot;platform:el9&quot;
+PRETTY_NAME=&quot;Oracle Linux Server 9.8&quot;
+ANSI_COLOR=&quot;0;31&quot;
+CPE_NAME=&quot;cpe:/o:oracle:linux:9:8:server&quot;
+HOME_URL=&quot;https://linux.oracle.com/&quot;
+BUG_REPORT_URL=&quot;https://github.com/oracle/oracle-linux&quot;
+
+ORACLE_BUGZILLA_PRODUCT=&quot;Oracle Linux 9&quot;
+ORACLE_BUGZILLA_PRODUCT_VERSION=9.8
+ORACLE_SUPPORT_PRODUCT=&quot;Oracle Linux&quot;
+ORACLE_SUPPORT_PRODUCT_VERSION=9.8
+[labadmin@oldblab-db1 ~]$ id oracle
+uid=54321(oracle) gid=54321(oinstall) groups=54321(oinstall),54322(dba),54323(oper),54324(backupdba),54325(dgdba),54326(kmdba),54330(racdba),54327(asmdba)
+[labadmin@oldblab-db1 ~]$ id grid
+uid=54331(grid) gid=54321(oinstall) groups=54321(oinstall),54330(racdba),54327(asmdba),54328(asmoper),54329(asmadmin)
+[labadmin@oldblab-db1 ~]$ ls -altrh /u01/app/oracle/software/
+total 17G
+-rwxrwxrwx. 1 labadmin labadmin 2.9G Oct 28 12:00 LINUX.X64_193000_db_home.zip
+-rwxrwxrwx. 1 labadmin labadmin 2.7G Oct 28 12:09 LINUX.X64_193000_grid_home.zip
+-rwxrwxrwx. 1 labadmin labadmin 124M Oct 28 12:09 p39803650_190000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 125M Oct 28 12:10 p39902038_210000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 125M Oct 28 12:10 p39902051_190000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 2.3G Oct 28 12:17 p39915792_190000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 2.7G Oct 28 12:31 p39922757_190000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 2.4G Oct 28 12:44 p40121635_190000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 2.8G Oct 28 12:56 p40121665_190000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 129M Oct 28 12:57 p6880880_190000_Linux-x86-64.zip
+-rwxrwxrwx. 1 labadmin labadmin 129M Oct 28 12:58 p6880880_210000_Linux-x86-64.zip
+drwxr-xr-x. 4 oracle   oinstall   37 Oct 28 13:16 ..
+drwxr-xr-x. 2 oracle   oinstall 4.0K Oct 28 13:19 .</code></pre></div>
+<h4 id="b-which-patch-is-which-and-unpacking-the-combo-patch">b. Which patch is which, and unpacking the combo patch</h4>
+<p>The patches were downloaded from My Oracle Support on a separate machine, <code>z11devrm473</code>, with a README listing each file. Only four of them are used: OPatch, the GI + OJVM combo, and the JDK patch (the two 21c files and the single RU zips aren't needed; the combo contains the GI RU and the OJVM RU).</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">z11devrm473</span><span class="where-note">(the download machine, in the patch folder)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>cat<span class="w"> </span>README-patch-numbers-with-descriptions
+</code></pre></div>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[apreddy@z11devrm473 OCT2026-patches]$ cat README-patch-numbers-with-descriptions
+ p40121665_190000_Linux-x86-64.zip   -  Combo OJVM Release Update 19.33.0.0.261020 and GI Release Update 19.33.0.0.261020 PATCH 40121665
+ p40121635_190000_Linux-x86-64.zip   -  Combo OJVM Release Update 19.33.0.0.261020 and Database Release Update 19.33.0.0.261020 PATCH 40121635  for UNIX, or
+ p39915792_190000_Linux-x86-64.zip   -  Database Release Update 19.33.0.0.261020 PATCH 39915792  for UNIX, or
+ p39922757_190000_Linux-x86-64.zip   -  GI Release Update 19.33.0.0.261020 PATCH 39922757
+ p39803650_190000_Linux-x86-64.zip   -  OJVM Release Update 19.33.0.0.261020 PATCH 39803650 for all platforms
+ p39902051_190000_Linux-x86-64.zip   -  JDK8u511 PATCH 39902051
+ p6880880_190000_Linux-x86-64.zip    -  Opatch for 19C
+
+p39902038_210000_Linux-x86-64.zip   -  JDK for 21C
+p6880880_210000_Linux-x86-64.zip    -  Opatch for 21C</code></pre></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Patch</th>
+<th>What it is</th>
+<th>Used here</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>p6880880_190000</code></td>
+<td>OPatch for 19c (12.2.0.1.54)</td>
+<td>both homes; 19.3 ships 12.2.0.1.17, too old for the RU</td>
+</tr>
+<tr>
+<td><code>p40121665_190000</code></td>
+<td>Combo: OJVM RU 19.33 + GI RU 19.33</td>
+<td>unpacked to <code>40121665/39922757</code> (GI RU) and <code>40121665/39803650</code> (OJVM RU), both homes</td>
+</tr>
+<tr>
+<td><code>p39902051_190000</code></td>
+<td>JDK 8u511 bundle patch</td>
+<td>both homes</td>
+</tr>
+<tr>
+<td><code>p40121635</code>, <code>p39915792</code>, <code>p39922757</code>, <code>p39803650</code></td>
+<td>the OJVM + DB RU combo, and the RUs as single zips</td>
+<td>not used; the combo above contains them</td>
+</tr>
+<tr>
+<td><code>p39902038_210000</code>, <code>p6880880_210000</code></td>
+<td>JDK and OPatch for 21c</td>
+<td>not used</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Why the GI RU in the Oracle home too:</strong> the GI RU contains the Database RU (<code>39915792</code>) and the OCW RU (<code>39922783</code>) that a RAC database home needs, so with the same patch on both homes, Grid and DB are at exactly the same level (see the <code>lspatches</code> in e and i).</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as oracle</span><span class="where-note">(sudo su - oracle)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/oracle/software
+unzip<span class="w"> </span>p40121665_190000_Linux-x86-64.zip
+unzip<span class="w"> </span>p39902051_190000_Linux-x86-64.zip
+<span class="nb">cd</span><span class="w"> </span><span class="m">40121665</span>
+<span class="nb">pwd</span>
+ls<span class="w"> </span>-altrh
+</code></pre></div>
+<p><strong>Check:</strong> <code>40121665</code> holds <code>39803650</code> (OJVM RU) and <code>39922757</code> (GI RU), plus Oracle's README; <code>/u01/app/oracle/software/39902051</code> exists for the JDK patch. (Only the <code>pwd</code> and <code>ls</code> were captured in this run.)</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[oracle@oldblab-db1 40121665]$ pwd
+/u01/app/oracle/software/40121665
+[oracle@oldblab-db1 40121665]$ ls -altrh
+total 64K
+drwxrwxrwx. 4 oracle oinstall   67 Oct  1 07:41 39803650
+drwxrwxrwx. 8 oracle oinstall  159 Oct 16 05:24 39922757
+-rwxrwxrwx. 1 oracle oinstall  34K Oct 19 04:16 PatchSearch.xml
+-rwxrwxrwx. 1 oracle oinstall  23K Oct 19 06:28 README.html
+drwxrwxrwx. 4 oracle oinstall   80 Oct 19 06:28 .
+drwxr-xr-x. 3 oracle oinstall 4.0K Oct 28 13:29 ..</code></pre></div>
+<h4 id="c-grid-home-unzip-193-and-replace-opatch">c. Grid home: unzip 19.3 and replace OPatch</h4>
+<p>19c homes are image-based: the base zip's contents <strong>are</strong> the home, so it's unzipped straight into the Grid home directory. The 19.3 home ships OPatch 12.2.0.1.17; the 19.33 RU needs a newer one, so the old <code>OPatch</code> directory is removed and the new one unzipped in its place.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as grid</span><span class="where-note">(sudo su - grid)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/19.0.0/grid/
+<span class="nb">pwd</span>
+unzip<span class="w"> </span>/u01/app/oracle/software/LINUX.X64_193000_grid_home.zip
+<span class="nb">cd</span><span class="w"> </span>OPatch/
+./opatch<span class="w"> </span>version
+<span class="nb">cd</span><span class="w"> </span>..
+rm<span class="w"> </span>-rf<span class="w"> </span>OPatch/
+unzip<span class="w"> </span>/u01/app/oracle/software/p6880880_190000_Linux-x86-64.zip
+<span class="nb">cd</span><span class="w"> </span>OPatch/
+./opatch<span class="w"> </span>version
+<span class="nb">cd</span><span class="w"> </span>..
+</code></pre></div>
+<p><strong>Check:</strong> <code>12.2.0.1.17</code> before and <code>12.2.0.1.54</code> after.</p>
+<p><strong>This lab's output (the unzip listings left out):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[grid@oldblab-db1 grid]$ pwd
+/u01/app/19.0.0/grid
+[grid@oldblab-db1 grid]$ unzip /u01/app/oracle/software/LINUX.X64_193000_grid_home.zip
+…
+[grid@oldblab-db1 grid]$ cd OPatch/
+[grid@oldblab-db1 OPatch]$ ./opatch version
+OPatch Version: 12.2.0.1.17
+
+[grid@oldblab-db1 grid]$ rm -rf OPatch/
+[grid@oldblab-db1 grid]$ unzip /u01/app/oracle/software/p6880880_190000_Linux-x86-64.zip
+…
+[grid@oldblab-db1 grid]$ cd OPatch/
+[grid@oldblab-db1 OPatch]$ ./opatch version
+OPatch Version: 12.2.0.1.54
+
+OPatch succeeded.</code></pre></div>
+<h4 id="d-grid-home-apply-the-ojvm-ru-the-gi-ru-and-the-jdk-patch">d. Grid home: apply the OJVM RU, the GI RU and the JDK patch</h4>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as grid</span><span class="where-note">(sudo su - grid)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/19.0.0/grid
+./gridSetup.sh<span class="w"> </span>-applyRU<span class="w"> </span>/u01/app/oracle/software/40121665/39803650/<span class="w"> </span>-silent
+./gridSetup.sh<span class="w"> </span>-applyRU<span class="w"> </span>/u01/app/oracle/software/40121665/39922757/<span class="w"> </span>-silent
+./gridSetup.sh<span class="w"> </span>-applyOneOffs<span class="w"> </span>/u01/app/oracle/software/39902051<span class="w"> </span>-silent
+</code></pre></div>
+<p><strong>Check:</strong> each ends with <code>Successfully applied the patch.</code></p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[grid@oldblab-db1 grid]$ ./gridSetup.sh -applyRU /u01/app/oracle/software/40121665/39803650/ -silent
+Preparing the home to patch...
+Applying the patch /u01/app/oracle/software/40121665/39803650/...
+Successfully applied the patch.
+
+[grid@oldblab-db1 grid]$ ./gridSetup.sh -applyRU /u01/app/oracle/software/40121665/39922757/ -silent
+Preparing the home to patch...
+Applying the patch /u01/app/oracle/software/40121665/39922757/...
+Successfully applied the patch.
+
+[grid@oldblab-db1 grid]$ pwd
+/u01/app/19.0.0/grid
+[grid@oldblab-db1 grid]$ ./gridSetup.sh -applyOneOffs /u01/app/oracle/software/39902051 -silent
+Preparing the home to patch...
+Applying the patch /u01/app/oracle/software/39902051...
+Successfully applied the patch.</code></pre></div>
+<h4 id="e-grid-home-software-only-install-and-root-scripts">e. Grid home: software-only install and root scripts</h4>
+<p><code>CRS_SWONLY</code> installs the Grid software on this host without configuring a cluster: it relinks the binaries and registers the home in <code>/u01/app/oraInventory</code>. Then the root scripts set the inventory and home permissions.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as grid</span><span class="where-note">(sudo su - grid)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/19.0.0/grid
+./gridSetup.sh<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-silent<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-waitforcompletion<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.option<span class="o">=</span>CRS_SWONLY<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">ORACLE_BASE</span><span class="o">=</span>/u01/app/grid<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">INVENTORY_LOCATION</span><span class="o">=</span>/u01/app/oraInventory<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">UNIX_GROUP_NAME</span><span class="o">=</span>oinstall<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.asm.OSDBA<span class="o">=</span>asmdba<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.asm.OSOPER<span class="o">=</span>asmoper<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.asm.OSASM<span class="o">=</span>asmadmin
+<span class="nb">cd</span><span class="w"> </span>OPatch/
+./opatch<span class="w"> </span>lspatches
+</code></pre></div>
+<p><strong>Check:</strong> <code>Successfully Setup Software with warning(s).</code> (the warnings are optional prerequisite checks), and seven patches in <code>lspatches</code>: the JDK bundle patch, the OJVM RU, and five that the GI RU brings: ACFS, OCW, Database RU, Tomcat and DBWLM.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[grid@oldblab-db1 grid]$ ./gridSetup.sh -silent -waitforcompletion oracle.install.option=CRS_SWONLY … oracle.install.asm.OSASM=asmadmin
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+The response file for this session can be found at:
+ /u01/app/19.0.0/grid/install/response/grid_2026-10-28_03-44-56PM.rsp
+
+You can find the log of this install session at:
+ /tmp/GridSetupActions2026-10-28_03-44-56PM/gridSetupActions2026-10-28_03-44-56PM.log
+
+As a root user, execute the following script(s):
+	1. /u01/app/oraInventory/orainstRoot.sh
+	2. /u01/app/19.0.0/grid/root.sh
+
+Execute /u01/app/oraInventory/orainstRoot.sh on the following nodes: 
+[oldblab-db1]
+Execute /u01/app/19.0.0/grid/root.sh on the following nodes: 
+[oldblab-db1]
+
+
+Successfully Setup Software with warning(s).
+Moved the install session logs to:
+ /u01/app/oraInventory/logs/GridSetupActions2026-10-28_03-44-56PM
+[grid@oldblab-db1 grid]$ cd OPatch/
+[grid@oldblab-db1 OPatch]$ ./opatch lspatches
+39902051;JDK BUNDLE PATCH 19.0.0.0.261020
+39922802;ACFS RELEASE UPDATE 19.33.0.0.0 (39922802)
+39922783;OCW RELEASE UPDATE 19.33.0.0.0 (39922783)
+39915792;Database Release Update : 19.33.0.0.261020 (39915792)
+39107855;TOMCAT RELEASE UPDATE 19.0.0.0.0 (39107855)
+39107825;DBWLM RELEASE UPDATE 19.0.0.0.0 (39107825)
+39803650;OJVM RELEASE UPDATE: 19.33.0.0.261020 (39803650)
+
+OPatch succeeded.</code></pre></div>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as root</span><span class="where-note">(after the install above has finished)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>/u01/app/oraInventory/orainstRoot.sh
+/u01/app/19.0.0/grid/root.sh
+</code></pre></div>
+<p><strong>Check:</strong> <code>The execution of the script is complete.</code> from <code>orainstRoot.sh</code>; <code>root.sh</code> writes its output to the log file it names.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[root@oldblab-db1 ~]# /u01/app/oraInventory/orainstRoot.sh
+Changing permissions of /u01/app/oraInventory.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/app/oraInventory to oinstall.
+The execution of the script is complete.
+[root@oldblab-db1 ~]# /u01/app/19.0.0/grid/root.sh
+Check /u01/app/19.0.0/grid/install/root_oldblab-db1_2026-10-28_15-48-28-438221666.log for the output of root script</code></pre></div>
+<h4 id="f-grid-home-create-the-gold-image">f. Grid home: create the gold image</h4>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as grid</span><span class="where-note">(sudo su - grid)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/19.0.0/grid/
+./gridSetup.sh<span class="w"> </span>-createGoldImage<span class="w"> </span>-destinationLocation<span class="w"> </span>/tmp/grid-gold<span class="w"> </span>-silent
+</code></pre></div>
+<p><strong>Check:</strong> <code>Successfully Setup Software.</code> and the zip's path.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[grid@oldblab-db1 grid]$ ./gridSetup.sh   -createGoldImage   -destinationLocation /tmp/grid-gold   -silent
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+Successfully Setup Software.
+Gold Image location: /tmp/grid-gold/grid_home_2026-10-28_03-48-55PM.zip</code></pre></div>
+<h4 id="g-oracle-home-unzip-193-and-replace-opatch">g. Oracle home: unzip 19.3 and replace OPatch</h4>
+<p>The same as c, as <code>oracle</code>, into the DB home. (In this run the Oracle home was unzipped first, before the Grid home; the order doesn't matter.) The <code>ls</code> shows what an unpacked 19.3 home looks like: every directory dated April 2019, including <code>OPatch</code>, <code>.patch_storage</code> and <code>.opatchauto_storage</code>.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as oracle</span><span class="where-note">(sudo su - oracle)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/oracle/product/19.0.0/dbhome_1/
+<span class="nb">pwd</span>
+unzip<span class="w"> </span>/u01/app/oracle/software/LINUX.X64_193000_db_home.zip
+ls<span class="w"> </span>-altrh
+<span class="nb">cd</span><span class="w"> </span>OPatch/
+./opatch<span class="w"> </span>version
+<span class="nb">cd</span><span class="w"> </span>../
+rm<span class="w"> </span>-rf<span class="w"> </span>OPatch/
+unzip<span class="w"> </span>/u01/app/oracle/software/p6880880_190000_Linux-x86-64.zip
+<span class="nb">cd</span><span class="w"> </span>OPatch/
+./opatch<span class="w"> </span>version
+<span class="nb">cd</span><span class="w"> </span>..
+</code></pre></div>
+<p><strong>Check:</strong> the home's directories (<code>bin</code>, <code>rdbms</code>, <code>OPatch</code>, <code>runInstaller</code> …) directly under <code>dbhome_1</code>; OPatch <code>12.2.0.1.17</code> before and <code>12.2.0.1.54</code> after.</p>
+<p><strong>This lab's output (the unzip listings left out):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[oracle@oldblab-db1 dbhome_1]$ pwd
+/u01/app/oracle/product/19.0.0/dbhome_1
+[oracle@oldblab-db1 dbhome_1]$ unzip /u01/app/oracle/software/LINUX.X64_193000_db_home.zip
+…
+[oracle@oldblab-db1 dbhome_1]$ ls -altrh
+total 92K
+-rw-r--r--.  1 oracle oinstall  852 Aug 18  2015 env.ora
+-rw-r--r--.  1 oracle oinstall 2.9K Oct 14  2016 schagent.conf
+-rwxr-x---.  1 oracle oinstall 1.8K Mar  8  2017 runInstaller
+drwxr-x---. 14 oracle oinstall 4.0K Apr 12  2019 OPatch
+drwxr-x---.  7 oracle oinstall   69 Apr 17  2019 xdk
+drwxr-xr-x.  3 oracle oinstall   19 Apr 17  2019 wwg
+drwxr-xr-x.  4 oracle oinstall   31 Apr 17  2019 usm
+drwxr-xr-x.  5 oracle oinstall   45 Apr 17  2019 suptools
+drwxr-xr-x.  6 oracle oinstall   54 Apr 17  2019 srvm
+drwxr-xr-x.  3 oracle oinstall   17 Apr 17  2019 sqlj
+drwxr-xr-x.  4 oracle oinstall   41 Apr 17  2019 sqldeveloper
+drwxr-xr-x.  3 oracle oinstall   18 Apr 17  2019 slax
+-rw-r-----.  1 oracle oinstall   10 Apr 17  2019 root.sh.old.1
+drwxr-xr-x.  3 oracle oinstall   21 Apr 17  2019 relnotes
+drwxr-xr-x.  4 oracle oinstall   29 Apr 17  2019 racg
+drwxr-xr-x.  5 oracle oinstall   52 Apr 17  2019 R
+drwxr-xr-x.  5 oracle oinstall   39 Apr 17  2019 perl
+drwxr-xr-x.  4 oracle oinstall   33 Apr 17  2019 owm
+drwxr-xr-x.  3 oracle oinstall   19 Apr 17  2019 oss
+drwxr-xr-x.  6 oracle oinstall   52 Apr 17  2019 ord
+drwxr-xr-x.  4 oracle oinstall   34 Apr 17  2019 oracore
+drwxr-xr-x.  7 oracle oinstall   65 Apr 17  2019 opmn
+drwxr-xr-x.  5 oracle oinstall   42 Apr 17  2019 olap
+drwxr-xr-x.  5 oracle oinstall   46 Apr 17  2019 nls
+drwxr-xr-x.  4 oracle oinstall   31 Apr 17  2019 mgw
+drwxr-xr-x.  9 oracle oinstall   98 Apr 17  2019 md
+drwxr-xr-x. 10 oracle oinstall  112 Apr 17  2019 ldap
+drwxr-xr-x.  3 oracle oinstall   18 Apr 17  2019 has
+drwxr-xr-x.  3 oracle oinstall   19 Apr 17  2019 dv
+drwxr-xr-x.  3 oracle oinstall   20 Apr 17  2019 diagnostics
+drwxr-xr-x.  3 oracle oinstall   20 Apr 17  2019 demo
+drwxr-xr-x.  3 oracle oinstall   19 Apr 17  2019 dbjava
+drwxr-xr-x.  3 oracle oinstall   20 Apr 17  2019 data
+drwxr-xr-x.  7 oracle oinstall   71 Apr 17  2019 cv
+drwxr-xr-x.  3 oracle oinstall   18 Apr 17  2019 css
+drwxr-xr-x.  6 oracle oinstall   55 Apr 17  2019 crs
+drwxr-xr-x.  6 oracle oinstall   78 Apr 17  2019 plsql
+drwxr-xr-x.  2 oracle oinstall   22 Apr 17  2019 dbs
+drwxr-xr-x.  2 oracle oinstall   33 Apr 17  2019 utl
+drwxr-xr-x.  2 oracle oinstall   29 Apr 17  2019 instantclient
+drwxr-xr-x. 13 oracle oinstall 4.0K Apr 17  2019 dmu
+drwxr-xr-x.  3 oracle oinstall   35 Apr 17  2019 ucp
+drwxr-xr-x.  3 oracle oinstall   35 Apr 17  2019 jdbc
+drwxr-xr-x.  2 oracle oinstall   26 Apr 17  2019 QOpatch
+drwxr-xr-x.  4 oracle oinstall   66 Apr 17  2019 ords
+drwxr-xr-x.  5 oracle oinstall  119 Apr 17  2019 sdk
+drwxr-xr-x.  6 oracle oinstall 4.0K Apr 17  2019 apex
+drwxr-xr-x.  8 oracle oinstall  101 Apr 17  2019 odbc
+drwxr-xr-x.  2 oracle oinstall 4.0K Apr 17  2019 jlib
+drwxr-xr-x.  4 oracle oinstall   30 Apr 17  2019 drdaas
+drwxr-xr-x. 11 oracle oinstall  119 Apr 17  2019 ctx
+-rwx------.  1 oracle oinstall  786 Apr 17  2019 root.sh.old
+drwxr-xr-x. 10 oracle oinstall  106 Apr 17  2019 network
+drwxr-xr-x.  5 oracle oinstall   41 Apr 17  2019 hs
+drwxr-xr-x.  9 oracle oinstall   93 Apr 17  2019 assistants
+drwxr-xr-x.  6 oracle oinstall   53 Apr 18  2019 sqlplus
+-rwx------.  1 oracle oinstall  638 Apr 18  2019 root.sh
+drwxr-xr-x.  8 oracle oinstall 4.0K Apr 18  2019 oui
+drwxr-xr-x.  5 oracle oinstall  191 Apr 18  2019 deinstall
+drwxr-xr-x.  4 oracle oinstall   87 Apr 18  2019 clone
+drwxr-xr-x.  2 oracle oinstall  102 Apr 18  2019 addnode
+drwxr-xr-x.  4 oracle oinstall 4.0K Apr 18  2019 sqlpatch
+drwxr-xr-x.  3 oracle oinstall   28 Apr 18  2019 .opatchauto_storage
+drwxr-xr-x.  5 oracle oinstall  188 Apr 18  2019 .patch_storage
+drwxr-xr-x. 13 oracle oinstall  140 Apr 18  2019 rdbms
+drwxr-xr-x.  6 oracle oinstall   56 Apr 18  2019 precomp
+drwxr-xr-x.  4 oracle oinstall  12K Apr 18  2019 lib
+drwxr-xr-x.  6 oracle oinstall 4.0K Apr 18  2019 jdk
+drwxr-xr-x.  8 oracle oinstall   82 Apr 18  2019 javavm
+drwxr-x---. 13 oracle oinstall 4.0K Apr 18  2019 inventory
+drwxr-xr-x.  2 oracle oinstall 8.0K Apr 18  2019 bin
+drwxr-xr-x. 10 oracle oinstall 4.0K Apr 18  2019 install
+drwxrwxr-x.  3 oracle oinstall   22 Oct 28 11:38 ..
+drwxrwxr-x. 68 oracle oinstall 4.0K Oct 28 13:26 .
+[oracle@oldblab-db1 dbhome_1]$ cd OPatch/
+[oracle@oldblab-db1 OPatch]$ ./opatch version
+OPatch Version: 12.2.0.1.17
+
+OPatch succeeded.
+[oracle@oldblab-db1 OPatch]$ cd ../
+[oracle@oldblab-db1 dbhome_1]$ rm -rf OPatch/
+[oracle@oldblab-db1 dbhome_1]$ unzip /u01/app/oracle/software/p6880880_190000_Linux-x86-64.zip
+…
+[oracle@oldblab-db1 dbhome_1]$ cd OPatch/
+[oracle@oldblab-db1 OPatch]$ ./opatch version
+OPatch Version: 12.2.0.1.54
+
+OPatch succeeded.</code></pre></div>
+<h4 id="h-oracle-home-apply-the-ojvm-ru-the-gi-ru-and-the-jdk-patch">h. Oracle home: apply the OJVM RU, the GI RU and the JDK patch</h4>
+<p>The same three patches as d, with <code>runInstaller</code> instead of <code>gridSetup.sh</code>.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as oracle</span><span class="where-note">(sudo su - oracle)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/oracle/product/19.0.0/dbhome_1
+./runInstaller<span class="w"> </span>-applyRU<span class="w"> </span>/u01/app/oracle/software/40121665/39803650/<span class="w"> </span>-silent
+./runInstaller<span class="w"> </span>-applyRU<span class="w"> </span>/u01/app/oracle/software/40121665/39922757/<span class="w"> </span>-silent
+./runInstaller<span class="w"> </span>-applyOneOffs<span class="w"> </span>/u01/app/oracle/software/39902051<span class="w"> </span>-silent
+</code></pre></div>
+<p><strong>Check:</strong> each ends with <code>Successfully applied the patch.</code></p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[oracle@oldblab-db1 dbhome_1]$ ./runInstaller -applyRU /u01/app/oracle/software/40121665/39803650/ -silent
+Preparing the home to patch...
+Applying the patch /u01/app/oracle/software/40121665/39803650/...
+Successfully applied the patch.
+
+[oracle@oldblab-db1 dbhome_1]$ ./runInstaller -applyRU /u01/app/oracle/software/40121665/39922757/ -silent
+Preparing the home to patch...
+Applying the patch /u01/app/oracle/software/40121665/39922757/...
+Successfully applied the patch.
+
+[oracle@oldblab-db1 dbhome_1]$ ./runInstaller -applyOneOffs /u01/app/oracle/software/39902051 -silent
+Preparing the home to patch...
+Applying the patch /u01/app/oracle/software/39902051...
+Successfully applied the patch.</code></pre></div>
+<h4 id="i-oracle-home-software-only-install-root-script-and-patch-list">i. Oracle home: software-only install, root script and patch list</h4>
+<p><code>INSTALL_DB_SWONLY</code> installs Enterprise Edition without creating a database; the OS groups map the database's admin roles to the <code>oracle</code> user's groups from a.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as oracle</span><span class="where-note">(sudo su - oracle)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/oracle/product/19.0.0/dbhome_1
+./runInstaller<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-silent<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-waitforcompletion<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-responseFile<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>/u01/app/oracle/product/19.0.0/dbhome_1/install/response/db_install.rsp<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.option<span class="o">=</span>INSTALL_DB_SWONLY<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">UNIX_GROUP_NAME</span><span class="o">=</span>oinstall<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">ORACLE_HOME</span><span class="o">=</span>/u01/app/oracle/product/19.0.0/dbhome_1<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">ORACLE_BASE</span><span class="o">=</span>/u01/app/oracle<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.db.InstallEdition<span class="o">=</span>EE<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.db.OSDBA_GROUP<span class="o">=</span>dba<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.db.OSOPER_GROUP<span class="o">=</span>oper<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.db.OSBACKUPDBA_GROUP<span class="o">=</span>backupdba<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.db.OSDGDBA_GROUP<span class="o">=</span>dgdba<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.db.OSKMDBA_GROUP<span class="o">=</span>kmdba<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>oracle.install.db.OSRACDBA_GROUP<span class="o">=</span>racdba<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">DECLINE_SECURITY_UPDATES</span><span class="o">=</span><span class="nb">true</span>
+</code></pre></div>
+<p><strong>Check:</strong> <code>Successfully Setup Software with warning(s).</code> and the request to run <code>root.sh</code>.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[oracle@oldblab-db1 dbhome_1]$ ./runInstaller -silent -waitforcompletion -responseFile … DECLINE_SECURITY_UPDATES=true
+Launching Oracle Database Setup Wizard...
+
+
+
+As a root user, execute the following script(s):
+	1. /u01/app/oracle/product/19.0.0/dbhome_1/root.sh
+
+Execute /u01/app/oracle/product/19.0.0/dbhome_1/root.sh on the following nodes: 
+[oldblab-db1]
+
+
+Successfully Setup Software with warning(s).</code></pre></div>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as root</span><span class="where-note">(after the install above has finished)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>/u01/app/oracle/product/19.0.0/dbhome_1/root.sh
+</code></pre></div>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[root@oldblab-db1 ~]# /u01/app/oracle/product/19.0.0/dbhome_1/root.sh
+Check /u01/app/oracle/product/19.0.0/dbhome_1/install/root_oldblab-db1_2026-10-28_16-05-07-235984924.log for the output of root script</code></pre></div>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as oracle</span><span class="where-note">(sudo su - oracle)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nb">cd</span><span class="w"> </span>/u01/app/oracle/product/19.0.0/dbhome_1/OPatch/
+./opatch<span class="w"> </span>lspatches
+</code></pre></div>
+<p><strong>Check:</strong> four patches: JDK, OCW, Database RU and OJVM, all 19.33 / 261020. The DB home has no ACFS, Tomcat or DBWLM: those parts of the GI RU apply only to a Grid home.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[oracle@oldblab-db1 OPatch]$ ./opatch lspatches
+39902051;JDK BUNDLE PATCH 19.0.0.0.261020
+39922783;OCW RELEASE UPDATE 19.33.0.0.0 (39922783)
+39915792;Database Release Update : 19.33.0.0.261020 (39915792)
+39803650;OJVM RELEASE UPDATE: 19.33.0.0.261020 (39803650)
+
+OPatch succeeded.</code></pre></div>
+<h4 id="j-oracle-home-create-the-gold-image">j. Oracle home: create the gold image</h4>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as oracle</span><span class="where-note">(sudo su - oracle)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>mkdir<span class="w"> </span>-p<span class="w"> </span>/tmp/db-gold
+<span class="nb">cd</span><span class="w"> </span>/u01/app/oracle/product/19.0.0/dbhome_1
+./runInstaller<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-createGoldImage<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-destinationLocation<span class="w"> </span>/tmp/db-gold<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-silent
+</code></pre></div>
+<p><strong>Check:</strong> <code>Successfully Setup Software.</code> and the zip's path.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>[oracle@oldblab-db1 dbhome_1]$ ./runInstaller -createGoldImage -destinationLocation /tmp/db-gold -silent
+Launching Oracle Database Setup Wizard...
+
+Successfully Setup Software.
+Gold Image location: /tmp/db-gold/db_home_2026-10-28_04-05-17PM.zip</code></pre></div>
+<p><strong>The two homes side by side</strong> (from e and i):</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Patch</th>
+<th>Grid home</th>
+<th>Oracle home</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>39915792</code> Database Release Update 19.33.0.0.261020</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>39922783</code> OCW Release Update 19.33.0.0.0</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>39803650</code> OJVM Release Update 19.33.0.0.261020</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>39902051</code> JDK bundle patch 19.0.0.0.261020</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>39922802</code> ACFS Release Update 19.33.0.0.0</td>
+<td>yes</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>39107855</code> Tomcat Release Update 19.0.0.0.0</td>
+<td>yes</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>39107825</code> DBWLM Release Update 19.0.0.0.0</td>
+<td>yes</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>For the next RU</strong> (all of this worked, so the 19.33 homes are fine as built): the OJVM RU is meant for database homes, so the Grid home doesn't need <code>39803650</code>; and Oracle's OJVM README applies it after the database RU, as a one-off. A one-command form per home for the next RU (not tested in this lab):</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">build host as grid: next RU</span><span class="where-note">(untested form)</span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>./gridSetup.sh<span class="w"> </span>-applyRU<span class="w"> </span>&lt;stage&gt;/&lt;combo&gt;/&lt;GI<span class="w"> </span>RU&gt;<span class="w"> </span>-applyOneOffs<span class="w"> </span>&lt;stage&gt;/&lt;JDK<span class="w"> </span>patch&gt;<span class="w"> </span>-silent
+<span class="c1"># build host as oracle: next RU (untested form)</span>
+./runInstaller<span class="w"> </span>-applyRU<span class="w"> </span>&lt;stage&gt;/&lt;combo&gt;/&lt;GI<span class="w"> </span>RU&gt;<span class="w"> </span>-applyOneOffs<span class="w"> </span>&lt;stage&gt;/&lt;combo&gt;/&lt;OJVM<span class="w"> </span>RU&gt;,&lt;stage&gt;/&lt;JDK<span class="w"> </span>patch&gt;<span class="w"> </span>-silent
+</code></pre></div>
+<h4 id="k-name-test-and-checksum-the-zips-not-run-yet">k. Name, test and checksum the zips (not run yet)</h4>
+<p>The operator finds the zips by the names in the <code>RacDatabase</code>, so they get names that say what and which RU; <code>/tmp</code> is cleaned over time, so they move next to the software.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">oldblab-db1 as root</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>mkdir<span class="w"> </span>-p<span class="w"> </span>/u01/app/oracle/software/gold
+mv<span class="w"> </span>/tmp/grid-gold/grid_home_2026-10-28_03-48-55PM.zip<span class="w"> </span>/u01/app/oracle/software/gold/oracle-gridhome-19.33.zip
+mv<span class="w"> </span>/tmp/db-gold/db_home_2026-10-28_04-05-17PM.zip<span class="w"> </span>/u01/app/oracle/software/gold/oracle-dbhome-19.33.zip
+<span class="nb">cd</span><span class="w"> </span>/u01/app/oracle/software/gold
+chmod<span class="w"> </span><span class="m">644</span><span class="w"> </span>oracle-*.zip
+unzip<span class="w"> </span>-tq<span class="w"> </span>oracle-gridhome-19.33.zip<span class="p">;</span><span class="w"> </span>unzip<span class="w"> </span>-tq<span class="w"> </span>oracle-dbhome-19.33.zip
+sha256sum<span class="w"> </span>oracle-gridhome-19.33.zip<span class="w"> </span>oracle-dbhome-19.33.zip<span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>oracle-gold-19.33.sha256
+ls<span class="w"> </span>-lh
+</code></pre></div>
+<p><strong>Check:</strong> two <code>No errors detected in compressed data of …</code> lines, two checksums and both zips listed. Copy both zips and the <code>.sha256</code> file to the PC's stage folder; from there 8.2 copies them to the workers and checks them against this file.</p>
 <h3 id="81-build-the-slim-image-op-worker1-then-op-worker2">8.1 Build the slim image (op-worker1, then op-worker2)</h3>
 <p><strong>What the slim image is:</strong> Oracle Linux 9 with the OS packages, users and groups Oracle needs, plus Oracle's own setup scripts, but <strong>no</strong> Oracle software. The operator starts this image and drives the scripts in it; they install Grid and the database from the zips in 8.2 into <code>/u01</code>, on the worker's disk. That's why the manual lab's image, built from the OCNE doc's short Containerfile, can't be used here: it doesn't have those scripts.</p>
 <p><strong>Why each line:</strong></p>
@@ -2222,9 +2787,682 @@ NAME    DBNAME    DBSTATE   ROLE      VERSION       PDB CONNECT STR             
 racdb   ORCLCDB   OPEN      PRIMARY   19.32.0.0.0   racnode-scan:1521/orclpdbsvc   AVAILABLE</code></pre></div>
 <p><strong>For the next build:</strong> a fourth disk group of type <code>DBREDO</code> in the YAML sets the online log destination separately from FRA; this lab didn't test that.</p>
 </section>
-<section class="sec"><h2 id="next-apply-it-then-phase-12">Next: apply it, then Phase 12</h2>
+<section class="sec"><h2 id="phase-12-access-from-windows"><span class="eyebrow">Phase 12</span>Access from Windows</h2>
+<p><strong>Result of this phase:</strong> a client on the Windows PC connects through SCAN (<code>127.0.0.1:31521/orclpdbsvc</code>), is sent on to either instance, and reconnects to the other instance when one goes away.</p>
+<p><strong>How a RAC connection works, and why it fails from Windows today:</strong></p>
+<ol>
+<li>The client connects to a SCAN listener (<code>LISTENER_SCAN1</code> or <code>2</code>, port 1521).</li>
+<li>The SCAN listener picks an instance offering the service and <strong>redirects</strong> the client to that instance's node listener, using the address the instance registered: its <code>local_listener</code>.</li>
+<li>The client opens a second connection to that address.</li>
+</ol>
+<p>Inside the cluster all three steps work. From Windows, step 1 reaches SCAN once there's a port forward to the NodePort <code>racnode-scan-lsnr</code> (31521), but step 2 hands out a pod IP and port 1522 (12.1), which Windows can't reach. So each instance needs a redirect address that Windows <strong>and</strong> the pods can reach.</p>
+<p><strong>The plan</strong> (12.1 shows the starting point):</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>racnode1-0 / ORCLCDB1</th>
+<th>racnode2-0 / ORCLCDB2</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>extra node listener port (both nodes listen on both)</td>
+<td>31522</td>
+<td>31523</td>
+</tr>
+<tr>
+<td><code>local_listener</code></td>
+<td><code>racnode1-0-vip.rac.svc.cluster.local:31522</code></td>
+<td><code>racnode2-0-vip.rac.svc.cluster.local:31523</code></td>
+</tr>
+<tr>
+<td>that name, inside the cluster</td>
+<td>the pod IP (headless Service), so the instance registers on 31522</td>
+<td>the pod IP, on 31523</td>
+</tr>
+<tr>
+<td>new NodePort Service</td>
+<td>31522 → racnode1-0:31522</td>
+<td>31523 → racnode2-0:31523</td>
+</tr>
+<tr>
+<td>Windows NAT forward</td>
+<td>127.0.0.1:31522 → 10.0.1.21:31522</td>
+<td>127.0.0.1:31523 → 10.0.1.21:31523</td>
+</tr>
+<tr>
+<td>Windows <code>hosts</code> (already there)</td>
+<td><code>racnode1-0-vip.rac.svc.cluster.local</code> → 127.0.0.1</td>
+<td><code>racnode2-0-vip.rac.svc.cluster.local</code> → 127.0.0.1</td>
+</tr>
+</tbody>
+</table></div>
+<p>Plus 127.0.0.1:31521 → 10.0.1.21:31521 for SCAN. All forwards may go to op-worker1: a NodePort answers on every node and Kubernetes routes on to the right pod.</p>
+<p><strong>Why a different port per node:</strong> the port SCAN hands out must be the same number on Windows, on the NodePort and on the listener, and Windows reaches both nodes through the one address 127.0.0.1. Two nodes on 1522 can't share it.</p>
+<p><strong>Why not the operator's NodePort option:</strong> the <code>RacDatabase</code> fields for node-listener NodePorts (<code>baseLsnrTargetPort</code>) only take effect when the database is first created; this cluster already exists, so the same result is set up by hand here. For a new build they belong in the YAML (not tested in this lab).</p>
+<h3 id="121-where-things-stand-read-only">12.1 Where things stand (read-only)</h3>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>get<span class="w"> </span>nodes<span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase<span class="w"> </span>racdb
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-o<span class="w"> </span>wide
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>svc<span class="w"> </span>-o<span class="w"> </span>wide
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>endpoints
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl config scan; srvctl config scan_listener; srvctl config listener; srvctl status listener; lsnrctl status LISTENER | grep -E 'Alias|Listening|Service \"'"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl config service -d ORCLCDB -s orclpdbsvc | grep -E 'Service name|Preferred|Available|Connection Load|Failover'"</span>
+<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== ORCLCDB</span><span class="nv">$i</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>-c<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB</span><span class="nv">$i</span><span class="s2">; sqlplus -s / as sysdba"</span><span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">set lines 200 pages 50</span>
+<span class="s">col name for a16</span>
+<span class="s">col value for a110</span>
+<span class="s">select name, value from v$parameter where name in ('local_listener','remote_listener');</span>
+<span class="s">EOF</span>
+<span class="k">done</span>
+<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== racnode</span><span class="nv">$i</span><span class="s2">-0"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>-c<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"lsnrctl status LISTENER | grep DESCRIPTION; lsnrctl status LISTENER_SCAN</span><span class="nv">$i</span><span class="s2"> | grep -E 'DESCRIPTION|orclpdbsvc'"</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl status scan_listener"</span>
+</code></pre></div>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell on the Windows PC</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span>
+<span class="s2">"--- NAT forwards on k8s-public"</span><span class="p">;</span> <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">list</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'Name:|ssh-op|:31|:15|:64'</span>
+<span class="s2">"--- hosts entries"</span><span class="p">;</span> <span class="nb">Select-String</span> <span class="n">-Path</span> <span class="n">C</span><span class="p">:\</span><span class="n">Windows</span><span class="p">\</span><span class="n">System32</span><span class="p">\</span><span class="n">drivers</span><span class="p">\</span><span class="n">etc</span><span class="p">\</span><span class="n">hosts</span> <span class="n">-Pattern</span> <span class="s1">'racnode|scan'</span> <span class="n">-ErrorAction</span> <span class="n">SilentlyContinue</span>
+<span class="s2">"--- python"</span><span class="p">;</span> <span class="n">python</span> <span class="p">-</span><span class="n">-version</span><span class="p">;</span> <span class="n">python</span> <span class="n">-m</span> <span class="n">pip</span> <span class="n">show</span> <span class="n">oracledb</span> <span class="n">2</span><span class="p">&gt;</span><span class="nv">$null</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'^(Name|Version):'</span>
+<span class="s2">"--- port 31521 from Windows"</span><span class="p">;</span> <span class="nb">Test-NetConnection</span> <span class="n">127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="n">-Port</span> <span class="n">31521</span> <span class="n">-InformationLevel</span> <span class="n">Quiet</span>
+</code></pre></div>
+<p><strong>What it showed in this lab:</strong></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>What</th>
+<th>Found</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cluster</td>
+<td>three nodes <code>Ready</code>; <code>racdb</code> <code>OPEN</code>, <code>19.32.0.0.0</code>, <code>AVAILABLE</code>; both pods <code>1/1 Running</code></td>
+</tr>
+<tr>
+<td>SCAN</td>
+<td><code>racnode-scan</code>, two SCAN VIPs = the two pod IPs; <code>LISTENER_SCAN1</code> on racnode1-0, <code>LISTENER_SCAN2</code> on racnode2-0, both <strong>TCP 1521</strong></td>
+</tr>
+<tr>
+<td>node listener</td>
+<td><code>LISTENER</code> on <strong>TCP 1522</strong> (not 1521), on each pod's own IP</td>
+</tr>
+<tr>
+<td><code>racnode-scan-lsnr</code></td>
+<td>NodePort <code>1521:31521</code>, selecting <strong>only racnode1-0</strong> (endpoint <code>10.244.1.6:1521</code>): from outside, 31521 always reaches <code>LISTENER_SCAN1</code>, which knows both instances</td>
+</tr>
+<tr>
+<td><code>local_listener</code></td>
+<td><code>(ADDRESS=(PROTOCOL=TCP)(HOST=10.244.1.6)(PORT=1522))</code> and <code>…10.244.2.4…1522</code>: pod IPs, the address SCAN hands to clients</td>
+</tr>
+<tr>
+<td><code>remote_listener</code></td>
+<td><code>racnode-scan:1521</code> on both instances; <code>orclpdbsvc</code> registered with both SCAN listeners (2 instances each)</td>
+</tr>
+<tr>
+<td><code>orclpdbsvc</code></td>
+<td>preferred on <code>ORCLCDB1,ORCLCDB2</code>, load balancing goal <code>LONG</code>, <strong>no failover type</strong> set</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td>only the SSH and API forwards; <code>hosts</code> already maps both <code>-vip</code> names to 127.0.0.1; Python 3.14.5 with <code>oracledb</code> 26.0.1 (thin mode, no Oracle client needed); 31521 not reachable yet</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>This lab's output (cluster):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>NAME              STATUS   ROLES           AGE   VERSION
+op-controlplane   Ready    control-plane   45h   v1.36.5
+op-worker1        Ready    worker          45h   v1.36.5
+op-worker2        Ready    worker          45h   v1.36.5
+NAME    DBNAME    DBSTATE   ROLE      VERSION       PDB CONNECT STR                STATE
+racdb   ORCLCDB   OPEN      PRIMARY   19.32.0.0.0   racnode-scan:1521/orclpdbsvc   AVAILABLE
+NAME         READY   STATUS    RESTARTS   AGE   IP           NODE         NOMINATED NODE   READINESS GATES
+racnode1-0   1/1     Running   0          23h   10.244.1.6   op-worker1   &lt;none&gt;           &lt;none&gt;
+racnode2-0   1/1     Running   0          23h   10.244.2.4   op-worker2   &lt;none&gt;           &lt;none&gt;
+NAME                TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)          AGE   SELECTOR
+racnode-scan        ClusterIP   None          &lt;none&gt;        &lt;none&gt;           23h   app=oracle-database-operator,database.oracle.com/component=RAC,database.oracle.com/managed-by=racdatabase-controller,database.oracle.com/name=racdb
+racnode-scan-lsnr   NodePort    10.99.59.33   &lt;none&gt;        1521:31521/TCP   23h   statefulset.kubernetes.io/pod-name=racnode1-0
+racnode1-0          ClusterIP   None          &lt;none&gt;        &lt;none&gt;           23h   statefulset.kubernetes.io/pod-name=racnode1-0
+racnode1-0-vip      ClusterIP   None          &lt;none&gt;        &lt;none&gt;           23h   statefulset.kubernetes.io/pod-name=racnode1-0
+racnode2-0          ClusterIP   None          &lt;none&gt;        &lt;none&gt;           23h   statefulset.kubernetes.io/pod-name=racnode2-0
+racnode2-0-vip      ClusterIP   None          &lt;none&gt;        &lt;none&gt;           23h   statefulset.kubernetes.io/pod-name=racnode2-0
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME                ENDPOINTS               AGE
+racnode-scan        10.244.1.6,10.244.2.4   23h
+racnode-scan-lsnr   10.244.1.6:1521         23h
+racnode1-0          10.244.1.6              23h
+racnode1-0-vip      10.244.1.6              23h
+racnode2-0          10.244.2.4              23h
+racnode2-0-vip      10.244.2.4              23h
+SCAN name: racnode-scan, Network: 1
+Subnet IPv4: 10.244.0.0/255.255.0.0/eth0, static
+Subnet IPv6:
+SCAN 1 IPv4 VIP: 10.244.1.6
+SCAN VIP is enabled.
+SCAN 2 IPv4 VIP: 10.244.2.4
+SCAN VIP is enabled.
+SCAN Listeners for network 1:
+Registration invited nodes:
+Registration invited subnets:
+Endpoints: TCP:1521
+SCAN Listener LISTENER_SCAN1 exists
+SCAN Listener is enabled.
+SCAN Listener LISTENER_SCAN2 exists
+SCAN Listener is enabled.
+Name: LISTENER
+Type: Database Listener
+Network: 1, Owner: grid
+Home: &lt;CRS home&gt;
+End points: TCP:1522
+Listener is enabled.
+Listener is individually enabled on nodes:
+Listener is individually disabled on nodes:
+Listener LISTENER is enabled
+Listener LISTENER is running on node(s): racnode1-0,racnode2-0
+Alias                     LISTENER
+Listening Endpoints Summary...
+Service &quot;+ASM&quot; has 1 instance(s).
+Service &quot;+ASM_DATA&quot; has 1 instance(s).
+Service &quot;+ASM_FRA&quot; has 1 instance(s).
+Service &quot;+ASM_VOTEDG&quot; has 1 instance(s).
+Service &quot;5edf079783cfb131e0630601f40a4240&quot; has 1 instance(s).
+Service &quot;ORCLCDB&quot; has 1 instance(s).
+Service &quot;ORCLCDBXDB&quot; has 1 instance(s).
+Service &quot;orclpdb&quot; has 1 instance(s).
+Service &quot;orclpdbsvc&quot; has 1 instance(s).
+Service name: orclpdbsvc
+Failover type:
+Failover method:
+Failover retries:
+Failover delay:
+Failover restore: NONE
+Connection Load Balancing Goal: LONG
+Preferred instances: ORCLCDB1,ORCLCDB2
+Available instances:
+=== ORCLCDB1
+
+NAME             VALUE
+---------------- --------------------------------------------------------------------------------------------------------------
+local_listener    (ADDRESS=(PROTOCOL=TCP)(HOST=10.244.1.6)(PORT=1522))
+remote_listener   racnode-scan:1521
+
+=== ORCLCDB2
+
+NAME             VALUE
+---------------- --------------------------------------------------------------------------------------------------------------
+local_listener    (ADDRESS=(PROTOCOL=TCP)(HOST=10.244.2.4)(PORT=1522))
+remote_listener   racnode-scan:1521
+
+=== racnode1-0
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=LISTENER)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=LISTENER)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.1.6)(PORT=1522)))
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=LISTENER_SCAN1)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=LISTENER_SCAN1)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.1.6)(PORT=1521)))
+Service &quot;orclpdbsvc&quot; has 2 instance(s).
+=== racnode2-0
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=LISTENER)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=LISTENER)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.2.4)(PORT=1522)))
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=LISTENER_SCAN2)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=LISTENER_SCAN2)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.2.4)(PORT=1521)))
+Service &quot;orclpdbsvc&quot; has 2 instance(s).
+SCAN Listener LISTENER_SCAN1 is enabled
+SCAN listener LISTENER_SCAN1 is running on node racnode1-0
+SCAN Listener LISTENER_SCAN2 is enabled
+SCAN listener LISTENER_SCAN2 is running on node racnode2-0</code></pre></div>
+<p><strong>This lab's output (Windows):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>--- NAT forwards on k8s-public
+
+Name:         k8s-public
+        k8sapi:tcp:[]:6443:[10.0.1.10]:6443
+        k8sapi-op:tcp:[]:6444:[10.0.1.20]:6443
+        ssh-opcp:tcp:[]:2220:[10.0.1.20]:22
+        ssh-opw1:tcp:[]:2221:[10.0.1.21]:22
+        ssh-opw2:tcp:[]:2222:[10.0.1.22]:22
+
+--- hosts entries
+
+C:\Windows\System32\drivers\etc\hosts:41:127.0.0.1 racnode1-0-vip.rac.svc.cluster.local
+C:\Windows\System32\drivers\etc\hosts:42:127.0.0.1 racnode2-0-vip.rac.svc.cluster.local
+
+--- python
+Python 3.14.5
+
+Name: oracledb
+Version: 26.0.1
+
+--- port 31521 from Windows
+WARNING: TCP connect to (127.0.0.1 : 31521) failed
+False</code></pre></div>
+<p><strong>The first version of the <code>local_listener</code> query failed (fixed above):</strong> it put the parameter names in double quotes inside the <code>su -c "…"</code> line. In SQL, double quotes mark identifiers, so Oracle read <code>"remote_listener"</code> as a column name. The block above feeds the SQL through a heredoc, so it can use the single quotes SQL needs.</p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>select name, value from v$parameter where name in (&quot;local_listener&quot;,&quot;remote_listener&quot;)
+                                                                    *
+ERROR at line 1:
+ORA-00904: &quot;remote_listener&quot;: invalid identifier</code></pre></div>
+<h3 id="122-add-ports-31522-and-31523-to-the-node-listener">12.2 Add ports 31522 and 31523 to the node listener</h3>
+<p><strong>What:</strong> <code>LISTENER</code> on both nodes listens on 31522 and 31523 as well as 1522.</p>
+<p><strong>Why both ports on both nodes:</strong> a listener's endpoints are one cluster-wide setting, the same on every node. Each instance will use only its own port (12.3); the other one is unused but harmless.</p>
+<p><strong>Interruption:</strong> the new ports take effect when the listener restarts; the block restarts it one node at a time, for a few seconds each. Connected sessions keep running, SCAN keeps working, new connections to the node being restarted fail for those seconds, and the instance re-registers on its own (the <code>sleep 60</code> gives it time).</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl modify listener -listener LISTENER -endpoints 'TCP:1522/TCP:31522/TCP:31523'; srvctl config listener -listener LISTENER | grep 'End points'"</span>
+<span class="k">for</span><span class="w"> </span>n<span class="w"> </span><span class="k">in</span><span class="w"> </span>racnode1-0<span class="w"> </span>racnode2-0<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== restart LISTENER on </span><span class="nv">$n</span><span class="s2">"</span>
+<span class="w">  </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl stop listener -listener LISTENER -node </span><span class="nv">$n</span><span class="s2">; srvctl start listener -listener LISTENER -node </span><span class="nv">$n</span><span class="s2">; srvctl status listener -listener LISTENER -node </span><span class="nv">$n</span><span class="s2">"</span>
+<span class="w">  </span>sleep<span class="w"> </span><span class="m">10</span>
+<span class="k">done</span>
+sleep<span class="w"> </span><span class="m">60</span>
+<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== racnode</span><span class="nv">$i</span><span class="s2">-0"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>-c<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"lsnrctl status LISTENER | grep -E 'PROTOCOL=tcp|orclpdbsvc'"</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== ORCLCDB</span><span class="nv">$i</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>-c<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB</span><span class="nv">$i</span><span class="s2">; sqlplus -s / as sysdba"</span><span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">set lines 200 pages 50</span>
+<span class="s">col value for a110</span>
+<span class="s">select value from v$parameter where name = 'local_listener';</span>
+<span class="s">EOF</span>
+<span class="k">done</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase<span class="w"> </span>racdb
+</code></pre></div>
+<p><strong>Check:</strong> <code>End points: TCP:1522,31522,31523</code>; the listener running on each node after its restart; three tcp lines per pod (its own pod IP, ports 1522, 31522, 31523) and <code>orclpdbsvc</code> registered again; <code>racdb</code> still <code>AVAILABLE</code>.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>End points: TCP:1522,31522,31523
+=== restart LISTENER on racnode1-0
+Listener LISTENER is enabled on node(s): racnode1-0
+Listener LISTENER is running on node(s): racnode1-0
+=== restart LISTENER on racnode2-0
+Listener LISTENER is enabled on node(s): racnode2-0
+Listener LISTENER is running on node(s): racnode2-0
+
+=== racnode1-0
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.1.6)(PORT=31523)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.1.6)(PORT=31522)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.1.6)(PORT=1522)))
+Service &quot;orclpdbsvc&quot; has 1 instance(s).
+=== racnode2-0
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.2.4)(PORT=31523)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.2.4)(PORT=31522)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=10.244.2.4)(PORT=1522)))
+Service &quot;orclpdbsvc&quot; has 1 instance(s).
+=== ORCLCDB1
+
+VALUE
+--------------------------------------------------------------------------------------------------------------
+ (ADDRESS=(PROTOCOL=TCP)(HOST=10.244.1.6)(PORT=1522)), (ADDRESS=(PROTOCOL=TCP)(HOST=10.244.1.6)(PORT=31522)),
+(ADDRESS=(PROTOCOL=TCP)(HOST=10.244.1.6)(PORT=31523))
+
+
+=== ORCLCDB2
+
+VALUE
+--------------------------------------------------------------------------------------------------------------
+ (ADDRESS=(PROTOCOL=TCP)(HOST=10.244.2.4)(PORT=1522)), (ADDRESS=(PROTOCOL=TCP)(HOST=10.244.2.4)(PORT=31522)),
+(ADDRESS=(PROTOCOL=TCP)(HOST=10.244.2.4)(PORT=31523))
+
+
+NAME    DBNAME    DBSTATE   ROLE      VERSION       PDB CONNECT STR                STATE
+racdb   ORCLCDB   OPEN      PRIMARY   19.32.0.0.0   racnode-scan:1521/orclpdbsvc   AVAILABLE</code></pre></div>
+<p><strong>What the <code>local_listener</code> lines show:</strong> Grid's agent rewrote each instance's <code>local_listener</code> by itself, from the pod IP and port 1522 to the pod IP with <strong>all three</strong> ports. The agent manages <code>local_listener</code> for a RAC database as long as it isn't set explicitly; it follows the listener's endpoints. The addresses are still pod IPs, which Windows can't reach, so 12.3 sets the parameter explicitly per instance.</p>
+<h3 id="123-set-local_listener-explicitly-one-value-per-instance">12.3 Set <code>local_listener</code> explicitly, one value per instance</h3>
+<p><strong>What:</strong> <code>ORCLCDB1</code> gets <code>racnode1-0-vip.rac.svc.cluster.local</code> port 31522 and <code>ORCLCDB2</code> gets <code>racnode2-0-vip.rac.svc.cluster.local</code> port 31523, with <code>scope=both</code> (now and in the spfile); <code>alter system register</code> makes each instance tell the SCAN listeners its new address at once.</p>
+<p><strong>Why it works on both sides:</strong> inside the pod each name resolves to the pod's own IP (the block checks this first and skips an instance if it doesn't), so the instance reaches its listener on that port. On Windows the same names point to 127.0.0.1 (<code>hosts</code>), and 12.4 forwards the ports. No session is interrupted and nothing restarts.</p>
+<p><strong>The test logins:</strong> <code>nobody/x</code> is a deliberately wrong login, so no password is involved. <code>ORA-01017: invalid username/password</code> can only come from an instance, so it proves the client got through SCAN <strong>and</strong> through the redirect; <code>ORA-12541</code> or <code>ORA-12545</code> would mean the redirect address doesn't work.</p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nv">h</span><span class="o">=</span>racnode<span class="nv">$i</span>-0-vip.rac.svc.cluster.local<span class="p">;</span><span class="w"> </span><span class="nv">p</span><span class="o">=</span><span class="k">$((</span><span class="m">31521</span><span class="o">+</span><span class="nv">i</span><span class="k">))</span>
+<span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== ORCLCDB</span><span class="nv">$i</span><span class="s2"> -&gt; </span><span class="nv">$h</span><span class="s2">:</span><span class="nv">$p</span><span class="s2">"</span>
+<span class="w">  </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>-c<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>--<span class="w"> </span>getent<span class="w"> </span>hosts<span class="w"> </span><span class="nv">$h</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"STOP: </span><span class="nv">$h</span><span class="s2"> does not resolve in racnode</span><span class="nv">$i</span><span class="s2">-0"</span><span class="p">;</span><span class="w"> </span><span class="k">continue</span><span class="p">;</span><span class="w"> </span><span class="o">}</span>
+<span class="w">  </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>-c<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB</span><span class="nv">$i</span><span class="s2">; sqlplus -s / as sysdba"</span><span class="w"> </span><span class="s">&lt;&lt;EOF</span>
+<span class="s">alter system set local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST=$h)(PORT=$p))' scope=both sid='ORCLCDB$i';</span>
+<span class="s">alter system register;</span>
+<span class="s">EOF</span>
+<span class="k">done</span>
+sleep<span class="w"> </span><span class="m">30</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB1; sqlplus -s / as sysdba"</span><span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">set lines 200 pages 50</span>
+<span class="s">col sid for a10</span>
+<span class="s">col value for a90</span>
+<span class="s">select inst_id, value from gv$parameter where name = 'local_listener' order by 1;</span>
+<span class="s">select sid, value from v$spparameter where name = 'local_listener';</span>
+<span class="s">EOF</span>
+<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== LISTENER_SCAN</span><span class="nv">$i</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>-c<span class="w"> </span>racnode<span class="nv">$i</span>-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"lsnrctl services LISTENER_SCAN</span><span class="nv">$i</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span><span class="s1">'/Service "orclpdbsvc"/{f=1;print;next} /^Service "/{f=0} f &amp;&amp; /Instance|ADDRESS/'</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+<span class="k">for</span><span class="w"> </span>t<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="m">4</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode2-0<span class="w"> </span>-c<span class="w"> </span>racnode2-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"echo exit | sqlplus -L -s nobody/x@//racnode-scan:1521/orclpdbsvc"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'ORA-|SP2-'</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase<span class="w"> </span>racdb
+</code></pre></div>
+<p><strong>Check:</strong> each name resolves to its pod's own IP; <code>System altered.</code> twice per instance; the new value for both instances in <code>gv$parameter</code> and stored per instance in <code>v$spparameter</code>; both SCAN listeners listing <code>ORCLCDB1</code> at <code>racnode1-0-vip…:31522</code> and <code>ORCLCDB2</code> at <code>racnode2-0-vip…:31523</code>; four <code>ORA-01017</code>; <code>racdb</code> still <code>AVAILABLE</code>.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>=== ORCLCDB1 -&gt; racnode1-0-vip.rac.svc.cluster.local:31522
+10.244.1.6      racnode1-0-vip.rac.svc.cluster.local
+
+System altered.
+
+
+System altered.
+
+=== ORCLCDB2 -&gt; racnode2-0-vip.rac.svc.cluster.local:31523
+10.244.2.4      racnode2-0-vip.rac.svc.cluster.local
+
+System altered.
+
+
+System altered.
+
+
+   INST_ID VALUE
+---------- ------------------------------------------------------------------------------------------
+         1 (ADDRESS=(PROTOCOL=TCP)(HOST=racnode1-0-vip.rac.svc.cluster.local)(PORT=31522))
+         2 (ADDRESS=(PROTOCOL=TCP)(HOST=racnode2-0-vip.rac.svc.cluster.local)(PORT=31523))
+
+
+SID        VALUE
+---------- ------------------------------------------------------------------------------------------
+*          -oraagent-dummy-
+ORCLCDB1   (ADDRESS=(PROTOCOL=TCP)(HOST=racnode1-0-vip.rac.svc.cluster.local)(PORT=31522))
+ORCLCDB2   (ADDRESS=(PROTOCOL=TCP)(HOST=racnode2-0-vip.rac.svc.cluster.local)(PORT=31523))
+
+=== LISTENER_SCAN1
+Service &quot;orclpdbsvc&quot; has 2 instance(s).
+  Instance &quot;ORCLCDB1&quot;, status READY, has 1 handler(s) for this service...
+         (ADDRESS=(PROTOCOL=TCP)(HOST=racnode1-0-vip.rac.svc.cluster.local)(PORT=31522))
+  Instance &quot;ORCLCDB2&quot;, status READY, has 1 handler(s) for this service...
+         (ADDRESS=(PROTOCOL=TCP)(HOST=racnode2-0-vip.rac.svc.cluster.local)(PORT=31523))
+=== LISTENER_SCAN2
+Service &quot;orclpdbsvc&quot; has 2 instance(s).
+  Instance &quot;ORCLCDB1&quot;, status READY, has 1 handler(s) for this service...
+         (ADDRESS=(PROTOCOL=TCP)(HOST=racnode1-0-vip.rac.svc.cluster.local)(PORT=31522))
+  Instance &quot;ORCLCDB2&quot;, status READY, has 1 handler(s) for this service...
+         (ADDRESS=(PROTOCOL=TCP)(HOST=racnode2-0-vip.rac.svc.cluster.local)(PORT=31523))
+ORA-01017: invalid username/password; logon denied
+SP2-0751: Unable to connect to Oracle.  Exiting SQL*Plus
+command terminated with exit code 1
+ORA-01017: invalid username/password; logon denied
+SP2-0751: Unable to connect to Oracle.  Exiting SQL*Plus
+command terminated with exit code 1
+ORA-01017: invalid username/password; logon denied
+SP2-0751: Unable to connect to Oracle.  Exiting SQL*Plus
+command terminated with exit code 1
+ORA-01017: invalid username/password; logon denied
+SP2-0751: Unable to connect to Oracle.  Exiting SQL*Plus
+command terminated with exit code 1
+NAME    DBNAME    DBSTATE   ROLE      VERSION       PDB CONNECT STR                STATE
+racdb   ORCLCDB   OPEN      PRIMARY   19.32.0.0.0   racnode-scan:1521/orclpdbsvc   AVAILABLE</code></pre></div>
+<p><strong>The <code>-oraagent-dummy-</code> line:</strong> that's the spfile entry for all instances (<code>*</code>), and the marker Grid's agent leaves when it manages <code>local_listener</code> itself. The new per-instance entries for <code>ORCLCDB1</code> and <code>ORCLCDB2</code> take precedence over it. 12.5 checks they survive a listener restart.</p>
+<h3 id="124-open-the-ports-nodeport-services-then-windows-forwards">12.4 Open the ports: NodePort Services, then Windows forwards</h3>
+<p><strong>What:</strong> two NodePort Services in namespace <code>rac</code>, <code>racnode1-0-lsnr-ext</code> (31522 → <code>racnode1-0</code>:31522) and <code>racnode2-0-lsnr-ext</code> (31523 → <code>racnode2-0</code>:31523), and three NAT forwards on <code>k8s-public</code>: 127.0.0.1:31521, 31522, 31523 → op-worker1 (10.0.1.21), same port.</p>
+<p><strong>Why each part:</strong></p>
+<ul>
+<li><strong>Own Services for the node listeners:</strong> the operator's <code>racnode-scan-lsnr</code> (31521) only covers SCAN. Each new Service selects one pod by its StatefulSet pod name, as the operator's own Services do.</li>
+<li><strong>Same number everywhere:</strong> port, <code>targetPort</code> and <code>nodePort</code> are the number SCAN hands out (12.3), so the redirect works unchanged from Windows.</li>
+<li><strong>Own label:</strong> <code>app: rac-ext-access</code> and none of the operator's labels, so the operator doesn't treat them as its own.</li>
+<li><strong>Forwards to op-worker1 only:</strong> a NodePort answers on every node and passes the traffic on to the right pod. The rule names start with <code>op-ora-</code>, so they're easy to find and remove.</li>
+</ul>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nv">p</span><span class="o">=</span><span class="k">$((</span><span class="m">31521</span><span class="o">+</span><span class="nv">i</span><span class="k">))</span><span class="p">;</span><span class="w"> </span>cat<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
+<span class="s">---</span>
+<span class="s">apiVersion: v1</span>
+<span class="s">kind: Service</span>
+<span class="s">metadata:</span>
+<span class="s">  name: racnode$i-0-lsnr-ext</span>
+<span class="s">  namespace: rac</span>
+<span class="s">  labels: { app: rac-ext-access }</span>
+<span class="s">spec:</span>
+<span class="s">  type: NodePort</span>
+<span class="s">  selector: { statefulset.kubernetes.io/pod-name: racnode$i-0 }</span>
+<span class="s">  ports:</span>
+<span class="s">    - { name: lsnr, protocol: TCP, port: $p, targetPort: $p, nodePort: $p }</span>
+<span class="s">EOF</span>
+<span class="k">done</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>-
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>svc<span class="w"> </span>racnode-scan-lsnr<span class="w"> </span>racnode1-0-lsnr-ext<span class="w"> </span>racnode2-0-lsnr-ext
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>endpoints<span class="w"> </span>racnode-scan-lsnr<span class="w"> </span>racnode1-0-lsnr-ext<span class="w"> </span>racnode2-0-lsnr-ext
+sleep<span class="w"> </span><span class="m">10</span>
+<span class="k">for</span><span class="w"> </span>h<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">10</span>.0.1.21<span class="w"> </span><span class="m">10</span>.0.1.22<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">31521</span><span class="w"> </span><span class="m">31522</span><span class="w"> </span><span class="m">31523</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>timeout<span class="w"> </span><span class="m">3</span><span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">"&lt;/dev/tcp/</span><span class="nv">$h</span><span class="s2">/</span><span class="nv">$p</span><span class="s2">"</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$h</span><span class="s2">:</span><span class="nv">$p</span><span class="s2"> open"</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$h</span><span class="s2">:</span><span class="nv">$p</span><span class="s2"> CLOSED"</span><span class="p">;</span><span class="w"> </span><span class="k">done</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"--- straight to the pods"</span>
+<span class="k">for</span><span class="w"> </span>a<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">10</span>.244.1.6:1521<span class="w"> </span><span class="m">10</span>.244.1.6:31522<span class="w"> </span><span class="m">10</span>.244.2.4:31523<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>timeout<span class="w"> </span><span class="m">3</span><span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">"&lt;/dev/tcp/</span><span class="si">${</span><span class="nv">a</span><span class="p">%:*</span><span class="si">}</span><span class="s2">/</span><span class="si">${</span><span class="nv">a</span><span class="p">#*:</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$a</span><span class="s2"> open"</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$a</span><span class="s2"> CLOSED"</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+</code></pre></div>
+<p><strong>Check:</strong> two Services <code>created</code>; three NodePorts <code>1521:31521</code>, <code>31522:31522</code>, <code>31523:31523</code>; endpoints <code>10.244.1.6:1521</code>, <code>10.244.1.6:31522</code>, <code>10.244.2.4:31523</code>; all six NodePort lines and all three pod lines <code>open</code>.</p>
+<p><strong>The first run tested too early.</strong> It checked the ports in the same second the Services were created (age <code>0s</code>), before kube-proxy had set up the new NodePorts, and 31522 and 31523 were refused. Ten seconds later all were open, and kube-proxy showed no errors; the block above now waits (<code>sleep 10</code>) and also tests both workers and the pods directly. A refused connection, unlike a timeout, also rules out a firewall drop.</p>
+<p><strong>This lab's output (the first run):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>service/racnode1-0-lsnr-ext created
+service/racnode2-0-lsnr-ext created
+NAME                  TYPE       CLUSTER-IP       EXTERNAL-IP   PORT(S)           AGE
+racnode-scan-lsnr     NodePort   10.99.59.33      &lt;none&gt;        1521:31521/TCP    25h
+racnode1-0-lsnr-ext   NodePort   10.105.16.139    &lt;none&gt;        31522:31522/TCP   0s
+racnode2-0-lsnr-ext   NodePort   10.109.147.162   &lt;none&gt;        31523:31523/TCP   0s
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME                  ENDPOINTS          AGE
+racnode-scan-lsnr     10.244.1.6:1521    25h
+racnode1-0-lsnr-ext   10.244.1.6:31522   0s
+racnode2-0-lsnr-ext   10.244.2.4:31523   0s
+10.0.1.21:31521 open
+bash: connect: Connection refused
+bash: line 1: /dev/tcp/10.0.1.21/31522: Connection refused
+10.0.1.21:31522 CLOSED
+bash: connect: Connection refused
+bash: line 1: /dev/tcp/10.0.1.21/31523: Connection refused
+10.0.1.21:31523 CLOSED</code></pre></div>
+<p><strong>This lab's output (the check ten seconds later, with kube-proxy):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>10.0.1.21:31521 open
+10.0.1.21:31522 open
+10.0.1.21:31523 open
+10.0.1.22:31521 open
+10.0.1.22:31522 open
+10.0.1.22:31523 open
+--- straight to the pods
+10.244.1.6:1521 open
+10.244.1.6:31522 open
+10.244.2.4:31523 open
+NAME               READY   STATUS    RESTARTS   AGE   IP          NODE              NOMINATED NODE   READINESS GATES
+kube-proxy-7sbhj   1/1     Running   0          47h   10.0.1.20   op-controlplane   &lt;none&gt;           &lt;none&gt;
+kube-proxy-hqvkq   1/1     Running   1          47h   10.0.1.22   op-worker2        &lt;none&gt;           &lt;none&gt;
+kube-proxy-smrqj   1/1     Running   1          47h   10.0.1.21   op-worker1        &lt;none&gt;           &lt;none&gt;
+no errors in the last kube-proxy log lines</code></pre></div>
+<p>(The kube-proxy lines came from <code>kubectl -n kube-system get pods -l k8s-app=kube-proxy -o wide</code> and <code>kubectl -n kube-system logs -l k8s-app=kube-proxy --tail=5 --prefix 2&gt;&amp;1 | grep -iE 'error|fail|31522|31523' || echo "no errors in the last kube-proxy log lines"</code>, run with the check.)</p>
+<p>Then on Windows:</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell on the Windows PC</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="nv">$VB</span> <span class="p">=</span> <span class="s2">"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$p</span> <span class="k">in</span> <span class="n">31521</span><span class="p">,</span> <span class="n">31522</span><span class="p">,</span> <span class="n">31523</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">modify</span> <span class="p">-</span><span class="n">-netname</span> <span class="n">k8s-public</span> <span class="p">-</span><span class="n">-port-forward</span><span class="p">-</span><span class="n">4</span> <span class="s2">"op-ora-</span><span class="p">$(</span><span class="nv">$p</span><span class="p">)</span><span class="s2">:tcp:[]:</span><span class="p">$(</span><span class="nv">$p</span><span class="p">)</span><span class="s2">:[10.0.1.21]:</span><span class="p">$(</span><span class="nv">$p</span><span class="p">)</span><span class="s2">"</span>
+<span class="p">}</span>
+<span class="p">&amp;</span> <span class="nv">$VB</span> <span class="n">natnetwork</span> <span class="n">list</span> <span class="p">|</span> <span class="nb">Select-String</span> <span class="s1">'Name:|op-ora-'</span>
+<span class="k">foreach</span> <span class="p">(</span><span class="nv">$p</span> <span class="k">in</span> <span class="n">31521</span><span class="p">,</span> <span class="n">31522</span><span class="p">,</span> <span class="n">31523</span><span class="p">)</span> <span class="p">{</span> <span class="s2">"127.0.0.1:$p  </span><span class="p">$(</span><span class="nb">Test-NetConnection</span> <span class="n">127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span> <span class="n">-Port</span> <span class="nv">$p</span> <span class="n">-InformationLevel</span> <span class="n">Quiet</span> <span class="n">-WarningAction</span> <span class="n">SilentlyContinue</span><span class="p">)</span><span class="s2">"</span> <span class="p">}</span>
+</code></pre></div>
+<p><strong>Check:</strong> three <code>op-ora-…</code> rules to <code>[10.0.1.21]</code>, and <code>True</code> for all three ports. (If a port shows <code>False</code>, wait a few seconds and run the last line again.)</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>Name:         k8s-public
+        op-ora-31521:tcp:[]:31521:[10.0.1.21]:31521
+        op-ora-31522:tcp:[]:31522:[10.0.1.21]:31522
+        op-ora-31523:tcp:[]:31523:[10.0.1.21]:31523
+
+127.0.0.1:31521  True
+127.0.0.1:31522  True
+127.0.0.1:31523  True</code></pre></div>
+<h3 id="125-connect-from-windows-through-scan">12.5 Connect from Windows through SCAN</h3>
+<p><strong>What:</strong> a small Python script opens 10 connections to <code>127.0.0.1:31521/orclpdbsvc</code> and prints, for each, which instance, host and container served it.</p>
+<p><strong>Why it proves the whole path:</strong> each connection goes Windows → forward 31521 → <code>LISTENER_SCAN1</code> → redirect to <code>racnode1-0-vip…:31522</code> or <code>racnode2-0-vip…:31523</code> → Windows <code>hosts</code> (127.0.0.1) → that forward → that instance's node listener. A line with an instance name has passed every step.</p>
+<p><strong>The password:</strong> asked at a hidden prompt (<code>getpass</code>); it isn't written to the file, the screen or the history. It's the database password from Phase 9, which DBCA used for SYS, SYSTEM and the PDB admin.</p>
+<p><strong>Driver:</strong> <code>python-oracledb</code> in thin mode needs no Oracle client. Thin mode has no TAF, so failover here means a <strong>new</strong> connection lands on the surviving instance (12.6), not a session that survives unchanged.</p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell on the Windows PC</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="sh">@'</span>
+<span class="sh">import collections, getpass, oracledb</span>
+
+<span class="sh">DSN = "127.0.0.1:31521/orclpdbsvc"</span>
+<span class="sh">SQL = """select sys_context('USERENV','INSTANCE_NAME'),</span>
+<span class="sh">                sys_context('USERENV','SERVER_HOST'),</span>
+<span class="sh">                sys_context('USERENV','CON_NAME') from dual"""</span>
+
+<span class="sh">pw = getpass.getpass("SYSTEM password: ")</span>
+<span class="sh">seen = collections.Counter()</span>
+<span class="sh">for n in range(1, 11):</span>
+<span class="sh">    with oracledb.connect(user="system", password=pw, dsn=DSN) as conn:</span>
+<span class="sh">        with conn.cursor() as cur:</span>
+<span class="sh">            cur.execute(SQL)</span>
+<span class="sh">            inst, host, con = cur.fetchone()</span>
+<span class="sh">    seen[inst] += 1</span>
+<span class="sh">    print(f"{n:2}  {inst:9} {host:11} {con}")</span>
+<span class="sh">print("oracledb", oracledb.__version__, "thin mode:", oracledb.is_thin_mode())</span>
+<span class="sh">print("connections per instance:", dict(seen))</span>
+<span class="sh">'@</span> <span class="p">|</span> <span class="nb">Set-Content</span> <span class="n">-Encoding</span> <span class="n">UTF8</span> <span class="n">D</span><span class="p">:\</span><span class="n">rac-k8s-poc-operator</span><span class="p">\</span><span class="n">scan_test</span><span class="p">.</span><span class="n">py</span>
+<span class="n">python</span> <span class="n">D</span><span class="p">:\</span><span class="n">rac-k8s-poc-operator</span><span class="p">\</span><span class="n">scan_test</span><span class="p">.</span><span class="n">py</span>
+</code></pre></div>
+<p><strong>Check:</strong> ten lines with <code>ORCLCDB1  racnode1-0  ORCLPDB</code> or <code>ORCLCDB2  racnode2-0  ORCLPDB</code>, <code>thin mode: True</code>, and both instances in the count. (With the service goal <code>LONG</code>, SCAN sends each new connection to the less busy instance, so a run of ten may split unevenly.)</p>
+<p><strong>If it fails, the error says where:</strong> <code>DPY-6005</code> or a timeout at the start → the forward or NodePort on 31521; <code>DPY-6000</code> / <code>ORA-12514</code> → SCAN doesn't know the service; <code>DPY-6005</code> naming <code>racnodeN-0-vip</code> → the redirect (<code>hosts</code> entry or the forward on 31522 / 31523); <code>ORA-01017</code> → everything works except the password.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>SYSTEM password:
+ 1  ORCLCDB2  racnode2-0  ORCLPDB
+ 2  ORCLCDB1  racnode1-0  ORCLPDB
+ 3  ORCLCDB2  racnode2-0  ORCLPDB
+ 4  ORCLCDB1  racnode1-0  ORCLPDB
+ 5  ORCLCDB2  racnode2-0  ORCLPDB
+ 6  ORCLCDB2  racnode2-0  ORCLPDB
+ 7  ORCLCDB1  racnode1-0  ORCLPDB
+ 8  ORCLCDB1  racnode1-0  ORCLPDB
+ 9  ORCLCDB2  racnode2-0  ORCLPDB
+10  ORCLCDB1  racnode1-0  ORCLPDB
+oracledb 26.0.1 thin mode: True
+connections per instance: {&#x27;ORCLCDB2&#x27;: 5, &#x27;ORCLCDB1&#x27;: 5}</code></pre></div>
+<h3 id="126-does-it-hold-listener-restart-and-new-connections-when-one-instance-is-out">12.6 Does it hold: listener restart, and new connections when one instance is out</h3>
+<p><strong>What, in three parts:</strong></p>
+<ul>
+<li><strong>a. (op-controlplane)</strong> read the RAC pods' health probes; restart the node listeners again as in 12.2 and check that <code>local_listener</code> keeps the values from 12.3; take <code>orclpdbsvc</code> off ORCLCDB1.</li>
+<li><strong>b. (Windows)</strong> run the test script: every connection should now land on ORCLCDB2.</li>
+<li><strong>c. (op-controlplane, then Windows)</strong> put the service back on ORCLCDB1 and run the script again: both instances again.</li>
+</ul>
+<p><strong>Why the service and not the whole instance:</strong> for new connections, stopping the service on one instance has the effect of losing that instance (SCAN stops sending clients there), without touching the database. Part a also reads the pods' probes first, to know whether stopping an instance could make Kubernetes restart a pod.</p>
+<p><strong>Interruption:</strong> a few seconds per node for the listener restart (as in 12.2). Without <code>-force</code>, stopping the service on ORCLCDB1 leaves existing sessions there running; only new connections go to ORCLCDB2.</p>
+<p><strong>a.</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="k">for</span><span class="w"> </span>p<span class="w"> </span><span class="k">in</span><span class="w"> </span>racnode1-0<span class="w"> </span>racnode2-0<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== </span><span class="nv">$p</span><span class="s2"> probes"</span><span class="p">;</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span><span class="nv">$p</span><span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .spec.containers[*]}{.name}{"\n"}  liveness:  {.livenessProbe}{"\n"}  readiness: {.readinessProbe}{"\n"}  startup:   {.startupProbe}{"\n"}{end}'</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+<span class="k">for</span><span class="w"> </span>n<span class="w"> </span><span class="k">in</span><span class="w"> </span>racnode1-0<span class="w"> </span>racnode2-0<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"=== restart LISTENER on </span><span class="nv">$n</span><span class="s2">"</span>
+<span class="w">  </span>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl stop listener -listener LISTENER -node </span><span class="nv">$n</span><span class="s2">; srvctl start listener -listener LISTENER -node </span><span class="nv">$n</span><span class="s2">; srvctl status listener -listener LISTENER -node </span><span class="nv">$n</span><span class="s2">"</span>
+<span class="w">  </span>sleep<span class="w"> </span><span class="m">10</span>
+<span class="k">done</span>
+sleep<span class="w"> </span><span class="m">60</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"export ORACLE_SID=ORCLCDB1; sqlplus -s / as sysdba"</span><span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+<span class="s">set lines 200 pages 50</span>
+<span class="s">col value for a90</span>
+<span class="s">select inst_id, value from gv$parameter where name = 'local_listener' order by 1;</span>
+<span class="s">EOF</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl stop service -d ORCLCDB -s orclpdbsvc -i ORCLCDB1; srvctl status service -d ORCLCDB -s orclpdbsvc"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>grid<span class="w"> </span>-c<span class="w"> </span><span class="s2">"lsnrctl services LISTENER_SCAN1"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span><span class="s1">'/Service "orclpdbsvc"/{f=1;print;next} /^Service "/{f=0} f &amp;&amp; /Instance|ADDRESS/'</span>
+</code></pre></div>
+<p><strong>Check:</strong> the probes printed; both listeners restarted; <code>local_listener</code> still <code>racnode1-0-vip…:31522</code> and <code>racnode2-0-vip…:31523</code>; <code>orclpdbsvc</code> running only on <code>ORCLCDB2</code>, and <code>LISTENER_SCAN1</code> listing only <code>Instance "ORCLCDB2"</code> for it.</p>
+<p><strong>Run it on op-controlplane, not in Git Bash.</strong> The first try of this block ran in Git Bash on the PC (the <code>$</code> prompt). There, plain <code>kubectl</code> uses the default kubeconfig, whose <code>127.0.0.1:6443</code> forward leads to another VM that wasn't running, so every call failed with <code>TLS handshake timeout</code> and nothing changed. Had that VM been running, the commands would have gone to the wrong cluster; from Git Bash only <code>kop</code> reaches this lab.</p>
+<p><strong>This lab's output (the first try, in Git Bash; first lines):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>$ # op-controlplane  (connect: ssh -p 2220 root@127.0.0.1)
+…
+=== racnode1-0 probes
+E1028 22:34:18.848649   90392 memcache.go:265] couldn&#x27;t get current server API group list: Get &quot;https://127.0.0.1:6443/api?timeout=32s&quot;: net/http: TLS handshake timeout
+…
+Unable to connect to the server: net/http: TLS handshake timeout</code></pre></div>
+<p><strong>This lab's output (on op-controlplane):</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>=== racnode1-0 probes
+racnode1-0
+  liveness:
+  readiness: {&quot;failureThreshold&quot;:3,&quot;initialDelaySeconds&quot;:180,&quot;periodSeconds&quot;:5,&quot;successThreshold&quot;:1,&quot;tcpSocket&quot;:{&quot;port&quot;:1522},&quot;timeoutSeconds&quot;:1}
+  startup:
+=== racnode2-0 probes
+racnode2-0
+  liveness:
+  readiness: {&quot;failureThreshold&quot;:3,&quot;initialDelaySeconds&quot;:180,&quot;periodSeconds&quot;:5,&quot;successThreshold&quot;:1,&quot;tcpSocket&quot;:{&quot;port&quot;:1522},&quot;timeoutSeconds&quot;:1}
+  startup:
+=== restart LISTENER on racnode1-0
+Listener LISTENER is enabled on node(s): racnode1-0
+Listener LISTENER is running on node(s): racnode1-0
+=== restart LISTENER on racnode2-0
+Listener LISTENER is enabled on node(s): racnode2-0
+Listener LISTENER is running on node(s): racnode2-0
+
+   INST_ID VALUE
+---------- ------------------------------------------------------------------------------------------
+         1 (ADDRESS=(PROTOCOL=TCP)(HOST=racnode1-0-vip.rac.svc.cluster.local)(PORT=31522))
+         2 (ADDRESS=(PROTOCOL=TCP)(HOST=racnode2-0-vip.rac.svc.cluster.local)(PORT=31523))
+
+Service orclpdbsvc is running on instance(s) ORCLCDB2
+Service &quot;orclpdbsvc&quot; has 1 instance(s).
+  Instance &quot;ORCLCDB2&quot;, status READY, has 1 handler(s) for this service...
+         (ADDRESS=(PROTOCOL=TCP)(HOST=racnode2-0-vip.rac.svc.cluster.local)(PORT=31523))</code></pre></div>
+<p><strong>What a shows:</strong></p>
+<ul>
+<li><strong><code>local_listener</code> survives a listener restart.</strong> Unlike in 12.2, Grid's agent didn't rewrite it: an explicit per-instance value in the spfile is left alone.</li>
+<li><strong>The pods have only a readiness probe:</strong> a TCP check of port 1522 every 5 s, failing after 3 misses (after a first 180 s). No liveness or startup probe, so Kubernetes never restarts a RAC pod because of a failed check; at most it marks it not ready. A stopped <em>instance</em> doesn't even do that, because the probe tests the node listener, not the database. A node listener down for longer than about 15 s does make its pod not ready, and Services may then stop sending traffic to it.</li>
+</ul>
+<p><strong>b.</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell on the Windows PC</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="n">python</span> <span class="n">D</span><span class="p">:\</span><span class="n">rac-k8s-poc-operator</span><span class="p">\</span><span class="n">scan_test</span><span class="p">.</span><span class="n">py</span>
+</code></pre></div>
+<p><strong>Check:</strong> all ten connections on <code>ORCLCDB2  racnode2-0</code>.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>SYSTEM password:
+ 1  ORCLCDB2  racnode2-0  ORCLPDB
+ 2  ORCLCDB2  racnode2-0  ORCLPDB
+ 3  ORCLCDB2  racnode2-0  ORCLPDB
+ 4  ORCLCDB2  racnode2-0  ORCLPDB
+ 5  ORCLCDB2  racnode2-0  ORCLPDB
+ 6  ORCLCDB2  racnode2-0  ORCLPDB
+ 7  ORCLCDB2  racnode2-0  ORCLPDB
+ 8  ORCLCDB2  racnode2-0  ORCLPDB
+ 9  ORCLCDB2  racnode2-0  ORCLPDB
+10  ORCLCDB2  racnode2-0  ORCLPDB
+oracledb 26.0.1 thin mode: True
+connections per instance: {&#x27;ORCLCDB2&#x27;: 10}</code></pre></div>
+<p><strong>c.</strong></p>
+<div class="cmd"><div class="cmd-head"><span class="where node">op-controlplane</span><span class="where-note"></span></div><div class="connect"><span class="connect-lbl">Connect first</span><span class="conn-cmd"><code>ssh -p 2220 root@127.0.0.1</code><button class="copy-mini" type="button" data-copy="ssh -p 2220 root@127.0.0.1" aria-label="Copy ssh -p 2220 root@127.0.0.1">Copy</button></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code>kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>racnode1-0<span class="w"> </span>-c<span class="w"> </span>racnode1-0<span class="w"> </span>--<span class="w"> </span>su<span class="w"> </span>-<span class="w"> </span>oracle<span class="w"> </span>-c<span class="w"> </span><span class="s2">"srvctl start service -d ORCLCDB -s orclpdbsvc -i ORCLCDB1; srvctl status service -d ORCLCDB -s orclpdbsvc"</span>
+kubectl<span class="w"> </span>-n<span class="w"> </span>rac<span class="w"> </span>get<span class="w"> </span>racdatabase<span class="w"> </span>racdb
+</code></pre></div>
+<p><strong>Check:</strong> the service on both instances again, <code>racdb</code> <code>AVAILABLE</code>.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>Service orclpdbsvc is running on instance(s) ORCLCDB1,ORCLCDB2
+NAME    DBNAME    DBSTATE   ROLE      VERSION       PDB CONNECT STR                STATE
+racdb   ORCLCDB   OPEN      PRIMARY   19.32.0.0.0   racnode-scan:1521/orclpdbsvc   AVAILABLE</code></pre></div>
+<div class="cmd"><div class="cmd-head"><span class="where win">PowerShell on the Windows PC</span><span class="where-note"></span></div><button class="copy" type="button" aria-label="Copy commands">Copy</button><pre><code><span class="n">python</span> <span class="n">D</span><span class="p">:\</span><span class="n">rac-k8s-poc-operator</span><span class="p">\</span><span class="n">scan_test</span><span class="p">.</span><span class="n">py</span>
+</code></pre></div>
+<p><strong>Check:</strong> both instances in the count again.</p>
+<p><strong>This lab's output:</strong></p>
+<div class="cmd out"><div class="cmd-head"><span class="where outl">Output</span><span class="where-note">what this lab printed; nothing to run</span></div><pre><code>SYSTEM password:
+ 1  ORCLCDB2  racnode2-0  ORCLPDB
+ 2  ORCLCDB1  racnode1-0  ORCLPDB
+ 3  ORCLCDB2  racnode2-0  ORCLPDB
+ 4  ORCLCDB1  racnode1-0  ORCLPDB
+ 5  ORCLCDB2  racnode2-0  ORCLPDB
+ 6  ORCLCDB1  racnode1-0  ORCLPDB
+ 7  ORCLCDB2  racnode2-0  ORCLPDB
+ 8  ORCLCDB1  racnode1-0  ORCLPDB
+ 9  ORCLCDB1  racnode1-0  ORCLPDB
+10  ORCLCDB1  racnode1-0  ORCLPDB
+oracledb 26.0.1 thin mode: True
+connections per instance: {&#x27;ORCLCDB2&#x27;: 4, &#x27;ORCLCDB1&#x27;: 6}</code></pre></div>
+<p><strong>Phase 12 result:</strong> from Windows, <code>127.0.0.1:31521/orclpdbsvc</code> reaches both instances through SCAN, new connections go to the remaining instance when the service is off one of them, and the settings survive a listener restart. What was changed, for reference or to undo:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Where</th>
+<th>Change</th>
+<th>Undo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Grid (cluster-wide)</td>
+<td><code>LISTENER</code> endpoints <code>TCP:1522/TCP:31522/TCP:31523</code></td>
+<td><code>srvctl modify listener -listener LISTENER -endpoints 'TCP:1522'</code>, then restart it per node</td>
+</tr>
+<tr>
+<td>spfile, per instance</td>
+<td><code>local_listener</code> = <code>racnode1-0-vip…:31522</code> (ORCLCDB1), <code>racnode2-0-vip…:31523</code> (ORCLCDB2)</td>
+<td><code>alter system reset local_listener scope=spfile sid='ORCLCDB1';</code> (and <code>ORCLCDB2</code>); the agent sets it again at the next instance start</td>
+</tr>
+<tr>
+<td>Kubernetes, namespace <code>rac</code></td>
+<td>Services <code>racnode1-0-lsnr-ext</code> (31522), <code>racnode2-0-lsnr-ext</code> (31523), label <code>app: rac-ext-access</code></td>
+<td><code>kubectl -n rac delete svc -l app=rac-ext-access</code></td>
+</tr>
+<tr>
+<td>VirtualBox <code>k8s-public</code></td>
+<td>forwards <code>op-ora-31521</code>, <code>op-ora-31522</code>, <code>op-ora-31523</code> → 10.0.1.21</td>
+<td><code>&amp; $VB natnetwork modify --netname k8s-public --port-forward-4 delete op-ora-31521</code> (and the other two)</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td><code>D:\rac-k8s-poc-operator\scan_test.py</code>; the <code>hosts</code> lines were already there</td>
+<td>delete the file; keep or remove the two <code>hosts</code> lines</td>
+</tr>
+</tbody>
+</table></div>
+</section>
+<section class="sec"><h2 id="next-steps">Next steps</h2>
 <p>After Phase 6 the operator lab is at the same point as the manual lab before its Phase 7, with three deliberate differences the operator asks for: the node directories <code>racnode1</code> / <code>racnode2</code> on both workers (4f), the worker label <code>raccluster=raccluster01</code> (5.4), and the Multus networks in namespace <code>rac</code> (6.3). The rest of the worker set-up (kernel settings, SELinux module, <code>allowedUnsafeSysctls</code>, hugepages, clock source) was already in the golden image and the kubeadm configuration.</p>
-<p>The phases below follow Oracle's <a href="https://github.com/oracle/oracle-database-operator">Oracle Database Operator for Kubernetes</a> (release v2.2.0, RAC controller <code>RacDatabase</code>, API <code>database.oracle.com/v4</code>). Phases 7 to 11 are above. Phase 11 is done: the database is open on both nodes (11.5), with the control file and redo fix in 11.6. Next, Phase 12 opens the database to Windows.</p>
+<p>The phases below follow Oracle's <a href="https://github.com/oracle/oracle-database-operator">Oracle Database Operator for Kubernetes</a> (release v2.2.0, RAC controller <code>RacDatabase</code>, API <code>database.oracle.com/v4</code>). Phases 7 to 11 are above. Phase 11 is done: the database is open on both nodes (11.5), with the control file and redo fix in 11.6. Phase 12 (above) opened the database to Windows: SCAN at <code>127.0.0.1:31521/orclpdbsvc</code> reaches both instances.</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -2235,8 +3473,8 @@ racdb   ORCLCDB   OPEN      PRIMARY   19.32.0.0.0   racnode-scan:1521/orclpdbsvc
 </thead>
 <tbody>
 <tr>
-<td>12. Access from Windows</td>
-<td>the operator's NodePort option, port forwards, and the same SCAN test as the manual lab</td>
+<td>12. Access from Windows (done)</td>
+<td>extra node-listener ports, explicit <code>local_listener</code>, own NodePorts and Windows forwards, then a SCAN test from Python</td>
 <td><code>provisioning_oracle_rac_db_with_node_port.md</code>, <code>database_connection.md</code></td>
 </tr>
 </tbody>
@@ -2245,8 +3483,9 @@ racdb   ORCLCDB   OPEN      PRIMARY   19.32.0.0.0   racnode-scan:1521/orclpdbsvc
 <ul>
 <li><strong>Which image (settled).</strong> The manual lab's image can't be reused: it was built from the OCNE doc's short Containerfile, and the operator drives the setup through the scripts in Oracle's own RAC image (it follows <code>/tmp/orod/oracle_db_setup.log</code>). Oracle doesn't publish the slim image on its registry, so Phase 8 builds it on each worker with <code>buildContainerImage.sh -v 19.3.0 -i -o '--build-arg SLIMMING=true'</code> (Oracle Linux 9 base).</li>
 <li><strong>Sizing (settled in 11.1).</strong> 16 GiB pods with 4 GiB of hugepages fit once the operator runs one controller pod instead of three; the <code>RAC_WEBHOOK_DEV_MODE</code> way around the 16 GiB minimum isn't needed.</li>
-<li><strong>Platform.</strong> Oracle lists OKE, OpenShift, OLCNE 1.9+ and Minikube as tested. A plain kubeadm cluster with CRI-O isn't on that list, so expect lab-specific workarounds, as in the manual lab. One showed up so far: the ASM discovery string with by-id disk names (<code>CRS_ASM_DISCOVERY_STRING</code> in 11.2, recovery in 11.4).</li>
+<li><strong>Platform.</strong> The operator's README lists OKE, OpenShift and OLCNE 1.9+ as tested, and GKE, AKS, EKS, OKD and Minikube as supported. That table covers the whole operator; the RAC controller's own prerequisites are written only for OCNE. A plain kubeadm cluster with CRI-O isn't on either list, so expect lab-specific workarounds, as in the manual lab. One showed up so far: the ASM discovery string with by-id disk names (<code>CRS_ASM_DISCOVERY_STRING</code> in 11.2, recovery in 11.4).</li>
 <li><strong>Online redo logs land in FRA.</strong> With no <code>DBREDO</code> disk group in the YAML, the setup script sets <code>DB_CREATE_ONLINE_LOG_DEST_1</code> to the recovery disk group, so the redo logs are only in <code>+FRA</code> (one member per group). That works for the lab; the usual layout keeps redo on DATA or its own disk group with a second member in FRA. The control file too ended up only in <code>+FRA</code> (11.5). 11.6 adds a second copy of each in <code>+DATA</code>. <code>db_recovery_file_dest_size</code> isn't set by the operator; DBCA chose 23895M.</li>
+<li><strong>Access from outside is set up by hand (Phase 12).</strong> The operator's own node-listener NodePort fields (<code>baseLsnrTargetPort</code>) only apply when the database is first created. A new build should set them in the YAML instead (not tested here). An instance-down test (<code>srvctl stop instance</code>) wasn't run; the pods have no liveness probe, so it wouldn't restart a pod.</li>
 <li><strong>VIPs are the pod IPs.</strong> Flannel gives each pod one IP, so <code>racnode1-0-vip</code> and <code>racnode2-0-vip</code> resolve to the pods' own addresses. A VIP can't move to the other node when its pod dies; client failover relies on SCAN and the service running on the other instance.</li>
 </ul></section>
   <footer class="foot">Built from the lab's build log and scripts (rac-k8s-poc). Values are from the author's lab; change them to match yours.</footer>
