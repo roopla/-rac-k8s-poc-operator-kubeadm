@@ -41,4 +41,4 @@ foreach ($n in "worker2","worker1","controlplane") { & $VB controlvm $n acpipowe
 foreach ($n in "op-controlplane","op-worker1","op-worker2") { & $VB startvm $n --type headless }
 ```
 
-To go back, swap the two lists: stop `op-worker2`, `op-worker1`, `op-controlplane`, then start `controlplane`, `worker1`, `worker2`.
+Before stopping the operator lab, stop Clusterware in its pods first, as in the runbook in 14.6. To go back, swap the two lists: stop `op-worker2`, `op-worker1`, `op-controlplane`, then start `controlplane`, `worker1`, `worker2`.
